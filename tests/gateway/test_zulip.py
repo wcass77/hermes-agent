@@ -3552,6 +3552,40 @@ class TestZulipMentionGatingIntegration:
         assert second.source.thread_id == "topic two"
 
     @pytest.mark.asyncio
+    async def test_free_response_stream_skips_peer_bot_mention(self, monkeypatch):
+        monkeypatch.setenv("ZULIP_FREE_RESPONSE_STREAMS", "general")
+        monkeypatch.setenv("ZULIP_HERMES_BOT_NAMES", "Pilot,Crichton,Scorpius")
+
+        adapter = _make_adapter(bot_email="pilot@example.zulipchat.com")
+        adapter._bot_user_id = 42
+        adapter._bot_full_name = "Pilot"
+        adapter.handle_message = AsyncMock()
+        adapter._stream_name_cache = {10: "general"}
+
+        await adapter._dispatch_inbound(
+            self._make_stream_msg(10, "@**Crichton** Can you hear me?"), {}
+        )
+
+        adapter.handle_message.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_free_response_stream_allows_own_bot_mention(self, monkeypatch):
+        monkeypatch.setenv("ZULIP_FREE_RESPONSE_STREAMS", "general")
+        monkeypatch.setenv("ZULIP_HERMES_BOT_NAMES", "Pilot,Crichton,Scorpius")
+
+        adapter = _make_adapter(bot_email="pilot@example.zulipchat.com")
+        adapter._bot_user_id = 42
+        adapter._bot_full_name = "Pilot"
+        adapter.handle_message = AsyncMock()
+        adapter._stream_name_cache = {10: "general"}
+
+        await adapter._dispatch_inbound(
+            self._make_stream_msg(10, "@**Pilot** Can you hear me?"), {}
+        )
+
+        adapter.handle_message.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_bot_authored_stream_message_ignored_by_default(self):
         message = self._make_stream_msg(10, "@**Hermes Bot** loop")
         message["sender_is_bot"] = True

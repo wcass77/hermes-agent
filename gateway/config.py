@@ -1896,6 +1896,7 @@ def _apply_env_overrides(config: GatewayConfig) -> None:
     zulip_require_mention = os.getenv("ZULIP_REQUIRE_MENTION")
     zulip_free_response_streams = os.getenv("ZULIP_FREE_RESPONSE_STREAMS")
     zulip_allow_bots = os.getenv("ZULIP_ALLOW_BOTS")
+    zulip_hermes_bot_names = os.getenv("ZULIP_HERMES_BOT_NAMES")
     zulip_config: PlatformConfig | None = None
     zulip_env_values = [
         zulip_api_key,
@@ -1911,6 +1912,7 @@ def _apply_env_overrides(config: GatewayConfig) -> None:
         zulip_require_mention,
         zulip_free_response_streams,
         zulip_allow_bots,
+        zulip_hermes_bot_names,
     ]
     if any(zulip_env_values):
         if Platform.ZULIP not in config.platforms:
@@ -1940,6 +1942,7 @@ def _apply_env_overrides(config: GatewayConfig) -> None:
             "require_mention": zulip_require_mention,
             "free_response_streams": zulip_free_response_streams,
             "allow_bots": zulip_allow_bots,
+            "hermes_bot_names": zulip_hermes_bot_names,
         }
         for key, value in zulip_extra_env.items():
             if value is not None:

@@ -21,6 +21,8 @@ Environment variables:
     ZULIP_REQUIRE_MENTION    Require @mention in streams (default: "true")
     ZULIP_FREE_RESPONSE_STREAMS  Comma-separated stream names or IDs that
                              don't require @mention
+    ZULIP_HERMES_BOT_NAMES  Comma-separated Hermes bot display names used to
+                             suppress free-response replies when another bot is mentioned
 """
 
 from __future__ import annotations
@@ -464,6 +466,16 @@ def _has_zulip_bot_mention(content: str, full_name: str, email: str) -> bool:
     )
 
 
+def _zulip_mentioned_names(content: str) -> set[str]:
+    """Return display names from Zulip Markdown mentions in raw content."""
+    names = set()
+    for match in re.finditer(r"@\*\*([^*]+)\*\*", content or ""):
+        name = match.group(1).strip().lower()
+        if name:
+            names.add(name)
+    return names
+
+
 # ---------------------------------------------------------------------------
 # Requirements check
 # ---------------------------------------------------------------------------
@@ -577,6 +589,10 @@ class ZulipAdapter(BasePlatformAdapter):
             config.extra.get("allow_bots")
             or os.getenv("ZULIP_ALLOW_BOTS", "none")
         ).strip().lower()
+        self._hermes_bot_names: set[str] = _csv_set(
+            config.extra.get("hermes_bot_names")
+            or os.getenv("ZULIP_HERMES_BOT_NAMES", "")
+        )
 
         # Historical context: when the bot is @mentioned in a stream, fetch
         # the last N messages from that stream+topic via Zulip's /messages API
@@ -2110,6 +2126,21 @@ class ZulipAdapter(BasePlatformAdapter):
             has_mention = _has_zulip_bot_mention(
                 content, self._bot_full_name, self._bot_email
             )
+            mentioned_names = _zulip_mentioned_names(content)
+            own_names = {
+                name.lower()
+                for name in (self._bot_full_name, self.name, self._bot_email)
+                if name
+            }
+            peer_mentions = (
+                mentioned_names & self._hermes_bot_names
+            ) - own_names
+            if peer_mentions and not has_mention:
+                logger.debug(
+                    "Zulip: skipping free-response message mentioning another Hermes bot: %s",
+                    sorted(peer_mentions),
+                )
+                return
 
             if sender_is_bot:
                 if self._allow_bots == "none":
