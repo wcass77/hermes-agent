@@ -117,6 +117,23 @@ class TestZulipConfigLoading:
         assert home.chat_id == "123:home-topic"
         assert home.name == "Bot Home"
 
+    def test_zulip_named_home_channel_splits_topic_metadata(self, monkeypatch):
+        monkeypatch.setenv("ZULIP_API_KEY", "zlp_key")
+        monkeypatch.setenv("ZULIP_BOT_EMAIL", "bot@example.com")
+        monkeypatch.setenv("ZULIP_SITE_URL", "https://example.zulipchat.com")
+        monkeypatch.setenv("ZULIP_HOME_CHANNEL", "Pilot:general chat")
+        monkeypatch.setenv("ZULIP_HOME_CHANNEL_NAME", "Pilot Home")
+
+        from gateway.config import GatewayConfig, _apply_env_overrides
+        config = GatewayConfig()
+        _apply_env_overrides(config)
+
+        home = config.get_home_channel(Platform.ZULIP)
+        assert home is not None
+        assert home.chat_id == "Pilot"
+        assert home.thread_id == "general chat"
+        assert home.name == "Pilot Home"
+
     def test_zulip_warning_without_email(self, monkeypatch):
         """ZULIP_API_KEY set but ZULIP_BOT_EMAIL missing should still load."""
         monkeypatch.setenv("ZULIP_API_KEY", "zlp_key")
@@ -3584,6 +3601,62 @@ class TestZulipMentionGatingIntegration:
         )
 
         adapter.handle_message.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_active_route_owner_gets_unmentioned_followup_without_free_response(self, tmp_path, monkeypatch):
+        from gateway import multi_agent_routes
+        from gateway.multi_agent_routes import claim_route, zulip_route_key
+
+        monkeypatch.setenv("HERMES_MULTI_AGENT_ROUTE_STATE", str(tmp_path / "active_routes.json"))
+        monkeypatch.setattr(multi_agent_routes, "current_profile_name", lambda: "crichton")
+        key = zulip_route_key(
+            site_url="https://example.zulipchat.com",
+            stream_id=10,
+            topic="buildout",
+        )
+        claim_route(key, profile="crichton")
+
+        adapter = _make_adapter(bot_email="crichton@example.zulipchat.com")
+        adapter._bot_user_id = 42
+        adapter._bot_full_name = "Crichton"
+        adapter.handle_message = AsyncMock()
+        adapter._stream_name_cache = {10: "Pilot"}
+
+        await adapter._dispatch_inbound(
+            self._make_stream_msg(10, "unmentioned follow-up", subject="buildout"), {}
+        )
+
+        adapter.handle_message.assert_called_once()
+        assert adapter.handle_message.call_args[0][0].text == "unmentioned follow-up"
+
+    @pytest.mark.asyncio
+    async def test_auto_thread_topic_moves_message_before_dispatch(self, monkeypatch):
+        monkeypatch.setenv("ZULIP_AUTO_THREAD_TOPICS", "general chat")
+        adapter = _make_adapter(bot_email="pilot@example.zulipchat.com")
+        adapter._bot_user_id = 42
+        adapter._bot_full_name = "Pilot"
+        adapter.handle_message = AsyncMock()
+        adapter._stream_name_cache = {10: "Pilot"}
+        adapter._client = MagicMock()
+        send_client = MagicMock()
+        send_client.update_message.return_value = {"result": "success"}
+        adapter._build_send_client = MagicMock(return_value=send_client)
+
+        await adapter._dispatch_inbound(
+            self._make_stream_msg(10, "Please plan the deployment", subject="general chat"), {}
+        )
+
+        send_client.update_message.assert_called_once_with({
+            "message_id": 9010,
+            "topic": "Please plan the deployment",
+            "propagate_mode": "change_one",
+            "send_notification_to_old_thread": False,
+            "send_notification_to_new_thread": False,
+        })
+        msg_event = adapter.handle_message.call_args[0][0]
+        assert msg_event.source.chat_id == "10"
+        assert msg_event.source.thread_id == "Please plan the deployment"
+        assert msg_event.source.chat_topic == "Please plan the deployment"
 
     @pytest.mark.asyncio
     async def test_bot_authored_stream_message_ignored_by_default(self):

@@ -1897,6 +1897,7 @@ def _apply_env_overrides(config: GatewayConfig) -> None:
     zulip_free_response_streams = os.getenv("ZULIP_FREE_RESPONSE_STREAMS")
     zulip_allow_bots = os.getenv("ZULIP_ALLOW_BOTS")
     zulip_hermes_bot_names = os.getenv("ZULIP_HERMES_BOT_NAMES")
+    zulip_auto_thread_topics = os.getenv("ZULIP_AUTO_THREAD_TOPICS")
     zulip_config: PlatformConfig | None = None
     zulip_env_values = [
         zulip_api_key,
@@ -1913,6 +1914,7 @@ def _apply_env_overrides(config: GatewayConfig) -> None:
         zulip_free_response_streams,
         zulip_allow_bots,
         zulip_hermes_bot_names,
+        zulip_auto_thread_topics,
     ]
     if any(zulip_env_values):
         if Platform.ZULIP not in config.platforms:
@@ -1943,6 +1945,7 @@ def _apply_env_overrides(config: GatewayConfig) -> None:
             "free_response_streams": zulip_free_response_streams,
             "allow_bots": zulip_allow_bots,
             "hermes_bot_names": zulip_hermes_bot_names,
+            "auto_thread_topics": zulip_auto_thread_topics,
         }
         for key, value in zulip_extra_env.items():
             if value is not None:
@@ -1953,10 +1956,21 @@ def _apply_env_overrides(config: GatewayConfig) -> None:
         if zulip_home_topic and zulip_home_chat_id and ":" not in zulip_home_chat_id:
             zulip_home_chat_id = f"{zulip_home_chat_id}:{zulip_home_topic}"
         if zulip_home_chat_id:
+            zulip_home_thread_id = os.getenv("ZULIP_HOME_CHANNEL_THREAD_ID") or None
+            parsed_named_home = None
+            try:
+                from gateway.platforms.zulip import _parse_stream_name_topic
+                parsed_named_home = _parse_stream_name_topic(zulip_home_chat_id)
+            except Exception:
+                parsed_named_home = None
+            if parsed_named_home:
+                zulip_home_chat_id, parsed_topic = parsed_named_home
+                zulip_home_thread_id = zulip_home_thread_id or parsed_topic
             zulip_config.home_channel = HomeChannel(
                 platform=Platform.ZULIP,
                 chat_id=zulip_home_chat_id,
                 name=os.getenv("ZULIP_HOME_CHANNEL_NAME", "Home"),
+                thread_id=zulip_home_thread_id,
             )
 
     # Session settings

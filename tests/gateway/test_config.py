@@ -1085,7 +1085,8 @@ class TestHomeChannelEnvOverrides:
         assert zulip_config.extra["default_stream"] == "general"
         assert zulip_config.extra["home_topic"] == "general chat"
         assert zulip_config.home_channel is not None
-        assert zulip_config.home_channel.chat_id == "general:general chat"
+        assert zulip_config.home_channel.chat_id == "general"
+        assert zulip_config.home_channel.thread_id == "general chat"
 
     def test_zulip_home_channel_with_embedded_topic_is_not_modified(self):
         config = GatewayConfig()
@@ -1102,7 +1103,8 @@ class TestHomeChannelEnvOverrides:
 
         home = config.platforms[Platform.ZULIP].home_channel
         assert home is not None
-        assert home.chat_id == "general:alerts"
+        assert home.chat_id == "general"
+        assert home.thread_id == "alerts"
 
     def test_zulip_default_stream_and_home_topic_define_home_channel(self):
         config = GatewayConfig()
@@ -1119,7 +1121,8 @@ class TestHomeChannelEnvOverrides:
 
         home = config.platforms[Platform.ZULIP].home_channel
         assert home is not None
-        assert home.chat_id == "general:general chat"
+        assert home.chat_id == "general"
+        assert home.thread_id == "general chat"
 
     def test_zulip_home_topic_without_stream_does_not_create_invalid_home_channel(self):
         config = GatewayConfig()

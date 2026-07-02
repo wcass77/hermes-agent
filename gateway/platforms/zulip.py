@@ -23,6 +23,8 @@ Environment variables:
                              don't require @mention
     ZULIP_HERMES_BOT_NAMES  Comma-separated Hermes bot display names used to
                              suppress free-response replies when another bot is mentioned
+    ZULIP_AUTO_THREAD_TOPICS Comma-separated topic names whose user messages
+                             should be moved to a new topic before replying
 """
 
 from __future__ import annotations
@@ -476,6 +478,20 @@ def _zulip_mentioned_names(content: str) -> set[str]:
     return names
 
 
+def _zulip_topic_title_from_content(content: str) -> str:
+    """Build a short human-readable topic title from a user message."""
+    text = re.sub(r"@\*\*([^*]+)\*\*", "", content or "")
+    text = re.sub(r"@\S+", "", text)
+    text = re.sub(r"[`*_~>#\[\]()]", " ", text)
+    text = re.sub(r"https?://\S+", "", text)
+    text = re.sub(r"\s+", " ", text).strip(" .:-\t\n\r")
+    if not text:
+        return "Hermes chat"
+    if len(text) > 80:
+        text = text[:77].rstrip() + "..."
+    return text
+
+
 # ---------------------------------------------------------------------------
 # Requirements check
 # ---------------------------------------------------------------------------
@@ -593,6 +609,17 @@ class ZulipAdapter(BasePlatformAdapter):
             config.extra.get("hermes_bot_names")
             or os.getenv("ZULIP_HERMES_BOT_NAMES", "")
         )
+        home_topic_from_channel = ""
+        home_channel_raw = os.getenv("ZULIP_HOME_CHANNEL", "")
+        parsed_home = _parse_stream_name_topic(home_channel_raw) or _parse_stream_chat_id(home_channel_raw)
+        if parsed_home:
+            home_topic_from_channel = str(parsed_home[1])
+        auto_thread_topics_raw = (
+            config.extra.get("auto_thread_topics")
+            or os.getenv("ZULIP_AUTO_THREAD_TOPICS", "")
+            or home_topic_from_channel
+        )
+        self._auto_thread_topics: set[str] = _csv_set(auto_thread_topics_raw)
 
         # Historical context: when the bot is @mentioned in a stream, fetch
         # the last N messages from that stream+topic via Zulip's /messages API
@@ -2123,6 +2150,16 @@ class ZulipAdapter(BasePlatformAdapter):
                 )
                 return
 
+            auto_threaded_from_landing_topic = False
+            if not sender_is_bot and topic_lower in self._auto_thread_topics:
+                moved_topic = await self._move_message_to_auto_topic(message, content)
+                if moved_topic:
+                    auto_threaded_from_landing_topic = True
+                    topic = moved_topic
+                    topic_lower = moved_topic.lower()
+                    thread_id = str(topic)
+                    chat_topic = topic
+
             has_mention = _has_zulip_bot_mention(
                 content, self._bot_full_name, self._bot_email
             )
@@ -2135,12 +2172,6 @@ class ZulipAdapter(BasePlatformAdapter):
             peer_mentions = (
                 mentioned_names & self._hermes_bot_names
             ) - own_names
-            if peer_mentions and not has_mention:
-                logger.debug(
-                    "Zulip: skipping free-response message mentioning another Hermes bot: %s",
-                    sorted(peer_mentions),
-                )
-                return
 
             if sender_is_bot:
                 if self._allow_bots == "none":
@@ -2152,12 +2183,33 @@ class ZulipAdapter(BasePlatformAdapter):
                     )
                     return
 
+            route_key = ""
+            route_owned_by_this_profile = False
+            route_helpers_available = False
+            try:
+                from gateway.multi_agent_routes import (
+                    active_owner,
+                    current_profile_name,
+                    route_allows_message,
+                    zulip_route_key,
+                )
+
+                route_key = zulip_route_key(
+                    site_url=self._site_url, stream_id=stream_id, topic=topic
+                )
+                route_helpers_available = True
+                route_owned_by_this_profile = (
+                    active_owner(route_key) == current_profile_name()
+                )
+            except Exception:
+                logger.debug("Zulip: multi-agent route lookup failed", exc_info=True)
+
             require_mention = self._require_mention
             if require_mention and self._free_response_streams:
                 if stream_keys & self._free_response_streams:
                     require_mention = False
 
-            if require_mention and not has_mention:
+            if require_mention and not has_mention and not route_owned_by_this_profile and not auto_threaded_from_landing_topic:
                 logger.debug(
                     "Zulip: skipping stream message without explicit bot mention "
                     "(stream=%s, topic=%s)",
@@ -2166,22 +2218,22 @@ class ZulipAdapter(BasePlatformAdapter):
                 )
                 return
 
-            try:
-                from gateway.multi_agent_routes import (
-                    route_allows_message,
-                    zulip_route_key,
+            if peer_mentions and not has_mention and not route_owned_by_this_profile:
+                logger.debug(
+                    "Zulip: skipping free-response message mentioning another Hermes bot: %s",
+                    sorted(peer_mentions),
                 )
+                return
 
-                route_key = zulip_route_key(
-                    site_url=self._site_url, stream_id=stream_id, topic=topic
-                )
-                if not route_allows_message(route_key, mentioned=has_mention):
-                    logger.debug(
-                        "Zulip: route %s is owned by another profile", route_key
-                    )
-                    return
-            except Exception:
-                logger.debug("Zulip: multi-agent route check failed", exc_info=True)
+            if route_helpers_available:
+                try:
+                    if not route_allows_message(route_key, mentioned=has_mention):
+                        logger.debug(
+                            "Zulip: route %s is owned by another profile", route_key
+                        )
+                        return
+                except Exception:
+                    logger.debug("Zulip: multi-agent route check failed", exc_info=True)
 
             if self._context_depth > 0:
                 context = await self._fetch_context(chat_name, topic)
@@ -2249,6 +2301,49 @@ class ZulipAdapter(BasePlatformAdapter):
         )
 
         asyncio.ensure_future(self.handle_message(msg_event))
+
+    async def _move_message_to_auto_topic(
+        self,
+        message: Dict[str, Any],
+        content: str,
+    ) -> Optional[str]:
+        """Move a top-level landing-topic message into a generated topic."""
+        if not self._client:
+            return None
+        msg_id = message.get("id")
+        if not msg_id:
+            return None
+        new_topic = _zulip_topic_title_from_content(content)
+        old_topic = str(message.get("subject") or "")
+        if not new_topic or new_topic.lower() == old_topic.lower():
+            return None
+        request = {
+            "message_id": int(msg_id),
+            "topic": new_topic,
+            "propagate_mode": "change_one",
+            "send_notification_to_old_thread": False,
+            "send_notification_to_new_thread": False,
+        }
+        try:
+            send_client = self._build_send_client()
+            result = await asyncio.to_thread(send_client.update_message, request)
+            if result.get("result") == "success":
+                logger.info(
+                    "Zulip: moved message %s from topic %r to %r",
+                    msg_id,
+                    old_topic,
+                    new_topic,
+                )
+                return new_topic
+            logger.debug(
+                "Zulip: failed to move message %s to topic %r: %s",
+                msg_id,
+                new_topic,
+                result.get("msg", result),
+            )
+        except Exception:
+            logger.debug("Zulip: failed to move message to auto topic", exc_info=True)
+        return None
 
     # ------------------------------------------------------------------
     # Internal: caches & helpers
