@@ -478,6 +478,45 @@ def _zulip_mentioned_names(content: str) -> set[str]:
     return names
 
 
+def _looks_like_known_hermes_bot(
+    *,
+    sender_email: str,
+    sender_full_name: str,
+    own_email: str,
+    own_full_name: str,
+    known_bot_names: set[str],
+) -> bool:
+    """Return True for configured Hermes bot senders even if Zulip omits bot flags."""
+    email = (sender_email or "").strip().lower()
+    full_name = (sender_full_name or "").strip().lower()
+    own_identities = {
+        value.strip().lower()
+        for value in (own_email, own_full_name)
+        if value and value.strip()
+    }
+
+    if email and email in own_identities:
+        return True
+    if full_name and full_name in own_identities:
+        return True
+
+    if full_name and full_name in known_bot_names:
+        return True
+
+    if email:
+        local_part = email.split("@", 1)[0]
+        email_name_candidates = {
+            local_part,
+            local_part.removesuffix("-bot"),
+            local_part.removesuffix("_bot"),
+            local_part.removesuffix(".bot"),
+        }
+        if email_name_candidates & known_bot_names:
+            return True
+
+    return False
+
+
 def _zulip_topic_title_from_content(content: str) -> str:
     """Build a short human-readable topic title from a user message."""
     text = re.sub(r"@\*\*([^*]+)\*\*", "", content or "")
@@ -2109,8 +2148,16 @@ class ZulipAdapter(BasePlatformAdapter):
         if not content or not content.strip():
             return
 
-        sender_is_bot = _truthy(message.get("sender_is_bot")) or bool(
-            message.get("sender_bot_type")
+        sender_is_bot = (
+            _truthy(message.get("sender_is_bot"))
+            or bool(message.get("sender_bot_type"))
+            or _looks_like_known_hermes_bot(
+                sender_email=sender_email,
+                sender_full_name=sender_full_name,
+                own_email=self._bot_email,
+                own_full_name=self._bot_full_name,
+                known_bot_names=self._hermes_bot_names,
+            )
         )
         mt = MessageType.TEXT
         if content.startswith("/") or content.startswith("!"):
@@ -2151,7 +2198,8 @@ class ZulipAdapter(BasePlatformAdapter):
                 return
 
             auto_threaded_from_landing_topic = False
-            if not sender_is_bot and topic_lower in self._auto_thread_topics:
+            stream_is_free_response = bool(stream_keys & self._free_response_streams)
+            if not sender_is_bot and stream_is_free_response and topic_lower in self._auto_thread_topics:
                 moved_topic = await self._move_message_to_auto_topic(message, content)
                 if moved_topic:
                     auto_threaded_from_landing_topic = True
@@ -2227,7 +2275,10 @@ class ZulipAdapter(BasePlatformAdapter):
 
             if route_helpers_available:
                 try:
-                    if not route_allows_message(route_key, mentioned=has_mention):
+                    if not route_allows_message(
+                        route_key,
+                        mentioned=has_mention or auto_threaded_from_landing_topic,
+                    ):
                         logger.debug(
                             "Zulip: route %s is owned by another profile", route_key
                         )

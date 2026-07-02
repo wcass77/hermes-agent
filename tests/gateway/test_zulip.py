@@ -3631,6 +3631,7 @@ class TestZulipMentionGatingIntegration:
 
     @pytest.mark.asyncio
     async def test_auto_thread_topic_moves_message_before_dispatch(self, monkeypatch):
+        monkeypatch.setenv("ZULIP_FREE_RESPONSE_STREAMS", "Pilot")
         monkeypatch.setenv("ZULIP_AUTO_THREAD_TOPICS", "general chat")
         adapter = _make_adapter(bot_email="pilot@example.zulipchat.com")
         adapter._bot_user_id = 42
@@ -3657,6 +3658,83 @@ class TestZulipMentionGatingIntegration:
         assert msg_event.source.chat_id == "10"
         assert msg_event.source.thread_id == "Please plan the deployment"
         assert msg_event.source.chat_topic == "Please plan the deployment"
+
+    @pytest.mark.asyncio
+    async def test_auto_thread_topic_requires_free_response_stream(self, monkeypatch):
+        monkeypatch.setenv("ZULIP_FREE_RESPONSE_STREAMS", "Crichton")
+        monkeypatch.setenv("ZULIP_AUTO_THREAD_TOPICS", "general chat")
+        adapter = _make_adapter(bot_email="scorpius@example.zulipchat.com")
+        adapter._bot_user_id = 42
+        adapter._bot_full_name = "Scorpius"
+        adapter.handle_message = AsyncMock()
+        adapter._stream_name_cache = {10: "Pilot"}
+        adapter._client = MagicMock()
+        send_client = MagicMock()
+        adapter._build_send_client = MagicMock(return_value=send_client)
+
+        await adapter._dispatch_inbound(
+            self._make_stream_msg(10, "What do I have tomorrow?", subject="general chat"), {}
+        )
+
+        send_client.update_message.assert_not_called()
+        adapter.handle_message.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_known_peer_bot_message_ignored_before_auto_thread(self, monkeypatch):
+        monkeypatch.setenv("ZULIP_FREE_RESPONSE_STREAMS", "Pilot")
+        monkeypatch.setenv("ZULIP_AUTO_THREAD_TOPICS", "general chat")
+        monkeypatch.setenv("ZULIP_HERMES_BOT_NAMES", "Pilot,Crichton,Scorpius")
+        adapter = _make_adapter(bot_email="pilot@example.zulipchat.com")
+        adapter._bot_user_id = 42
+        adapter._bot_full_name = "Pilot"
+        adapter.handle_message = AsyncMock()
+        adapter._stream_name_cache = {10: "Pilot"}
+        adapter._client = MagicMock()
+        send_client = MagicMock()
+        adapter._build_send_client = MagicMock(return_value=send_client)
+        message = self._make_stream_msg(
+            10,
+            '📚 skill_view: "calendar-management"',
+            subject="general chat",
+            sender="scorpius-bot@example.zulipchat.com",
+        )
+        message["sender_full_name"] = "Scorpius"
+
+        await adapter._dispatch_inbound(message, {})
+
+        send_client.update_message.assert_not_called()
+        adapter.handle_message.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_auto_thread_claims_active_route_for_owner(self, tmp_path, monkeypatch):
+        from gateway import multi_agent_routes
+        from gateway.multi_agent_routes import active_owner, zulip_route_key
+
+        monkeypatch.setenv("HERMES_MULTI_AGENT_ROUTE_STATE", str(tmp_path / "active_routes.json"))
+        monkeypatch.setattr(multi_agent_routes, "current_profile_name", lambda: "pilot")
+        monkeypatch.setenv("ZULIP_FREE_RESPONSE_STREAMS", "Pilot")
+        monkeypatch.setenv("ZULIP_AUTO_THREAD_TOPICS", "general chat")
+        adapter = _make_adapter(bot_email="pilot@example.zulipchat.com")
+        adapter._bot_user_id = 42
+        adapter._bot_full_name = "Pilot"
+        adapter.handle_message = AsyncMock()
+        adapter._stream_name_cache = {10: "Pilot"}
+        adapter._client = MagicMock()
+        send_client = MagicMock()
+        send_client.update_message.return_value = {"result": "success"}
+        adapter._build_send_client = MagicMock(return_value=send_client)
+
+        await adapter._dispatch_inbound(
+            self._make_stream_msg(10, "What do I have tomorrow?", subject="general chat"), {}
+        )
+
+        key = zulip_route_key(
+            site_url="https://example.zulipchat.com",
+            stream_id=10,
+            topic="What do I have tomorrow?",
+        )
+        assert active_owner(key) == "pilot"
+        assert adapter.handle_message.call_args[0][0].source.thread_id == "What do I have tomorrow?"
 
     @pytest.mark.asyncio
     async def test_bot_authored_stream_message_ignored_by_default(self):
