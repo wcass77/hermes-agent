@@ -2429,6 +2429,12 @@ DEFAULT_CONFIG = {
             "search_default_limit": 5,
             # Hard upper bound the model can request via ``limit``. Range 1..50.
             "max_search_limit": 20,
+            # Exact tool names that should be deferred even if they are part
+            # of Hermes' normally always-visible core tool list.
+            "force_defer_tools": [],
+            # Toolsets whose tools should be deferred even if they are part
+            # of Hermes' normally always-visible core tool list.
+            "force_defer_toolsets": [],
         },
     },
 
