@@ -1792,6 +1792,53 @@ class TestZulipHistoricalContext:
         assert msg_event.text == "hello"
 
     @pytest.mark.asyncio
+    async def test_peer_bot_messages_are_included_in_context(self, monkeypatch):
+        """Peer bot messages are context on explicit handoff, not trigger events."""
+        monkeypatch.setenv("ZULIP_HERMES_BOT_NAMES", "Pilot,Scorpius")
+        adapter = _make_adapter(bot_email="pilot@example.zulipchat.com")
+        adapter._bot_user_id = 42
+        adapter._bot_full_name = "Pilot"
+        adapter._require_mention = True
+        adapter._context_depth = 20
+        adapter.handle_message = AsyncMock()
+        adapter._stream_name_cache = {99: "Pilot"}
+        mock_client = MagicMock()
+        mock_client.get_messages.return_value = {
+            "result": "success",
+            "messages": [
+                {
+                    "sender_full_name": "Willy Cass",
+                    "sender_email": "willy@example.com",
+                    "content": "@**Scorpius** can you hear me?",
+                },
+                {
+                    "sender_full_name": "Scorpius",
+                    "sender_email": "scorpius-bot@example.zulipchat.com",
+                    "content": "Yes, I can hear you.",
+                },
+            ],
+        }
+        adapter._build_send_client = MagicMock(return_value=mock_client)
+
+        message = {
+            "id": 3006,
+            "sender_email": "willy@example.com",
+            "sender_full_name": "Willy Cass",
+            "sender_id": 10,
+            "type": "stream",
+            "stream_id": 99,
+            "subject": "handoff",
+            "content": "@**Pilot** back to you",
+            "display_recipient": "Pilot",
+        }
+        await adapter._dispatch_inbound(message, {"message": message})
+
+        msg_event = adapter.handle_message.call_args[0][0]
+        assert "Willy Cass: @**Scorpius** can you hear me?" in msg_event.text
+        assert "Scorpius: Yes, I can hear you." in msg_event.text
+        assert msg_event.text.endswith("back to you")
+
+    @pytest.mark.asyncio
     async def test_bot_messages_are_filtered_from_context(self):
         """The bot's own messages are excluded from fetched context."""
         mock_client = MagicMock()
