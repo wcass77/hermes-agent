@@ -89,6 +89,20 @@ def _is_path_unsafe(value: object) -> bool:
     return len(s) >= 2 and s[0].isalpha() and s[1] == ":"
 
 
+def _key_path_safe(key: str) -> str:
+    """Make a built session key safe for :func:`_is_path_unsafe`.
+
+    A session_key is only ever a lookup handle (SQLite/dict), never itself a
+    filesystem path — but a legitimate component such as a Zulip topic named
+    ``"Ryan 6/17"`` puts a ``/`` in the key, which the CWE-22 guard in
+    :meth:`SessionEntry.from_dict` then rejects, silently dropping a valid
+    session on load. Map the path-unsafe characters to ``_`` so the key is
+    loadable. The colon segment separators are preserved (they are not
+    path-unsafe); only ``..``, ``/`` and ``\\`` are rewritten.
+    """
+    return key.replace("..", "_").replace("/", "_").replace("\\", "_")
+
+
 @dataclass
 class SessionSource:
     """
@@ -681,6 +695,29 @@ def build_session_key(
     thread_sessions_per_user: bool = False,
     profile: Optional[str] = None,
 ) -> str:
+    """Build a deterministic, path-safe session key from a message source.
+
+    Thin wrapper over :func:`_build_session_key_unsafe` that sanitizes the
+    result via :func:`_key_path_safe`, so a component such as a Zulip topic
+    named ``"Ryan 6/17"`` never produces a key the load-time CWE-22 guard
+    would reject. Sanitizing is deterministic, so keys remain stable.
+    """
+    return _key_path_safe(
+        _build_session_key_unsafe(
+            source,
+            group_sessions_per_user=group_sessions_per_user,
+            thread_sessions_per_user=thread_sessions_per_user,
+            profile=profile,
+        )
+    )
+
+
+def _build_session_key_unsafe(
+    source: SessionSource,
+    group_sessions_per_user: bool = True,
+    thread_sessions_per_user: bool = False,
+    profile: Optional[str] = None,
+) -> str:
     """Build a deterministic session key from a message source.
 
     This is the single source of truth for session key construction.
@@ -808,11 +845,52 @@ class SessionStore:
             try:
                 with open(sessions_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
+                migrated_keys = 0
                 for key, entry_data in data.items():
+                    # Keys starting with "_" are documentation/metadata sentinels
+                    # (for example the "_README" note written by _save), not
+                    # session entries. Skip them before SessionEntry.from_dict.
+                    if str(key).startswith("_"):
+                        continue
+                    if not isinstance(entry_data, dict):
+                        logger.warning(
+                            "Skipping invalid session entry %r: expected dict, got %s",
+                            key,
+                            type(entry_data).__name__,
+                        )
+                        continue
                     try:
                         self._entries[key] = SessionEntry.from_dict(entry_data)
-                    except (ValueError, KeyError) as e:
+                    except (ValueError, KeyError, TypeError) as e:
+                        # Legacy session keys can contain path-unsafe topic text
+                        # such as Zulip topics with slashes. The key is only a
+                        # lookup handle, so migrate it under a sanitized key while
+                        # leaving the real session_id untouched.
+                        safe_key = _key_path_safe(key)
+                        if safe_key != key and safe_key not in self._entries:
+                            migrated_entry = dict(entry_data)
+                            migrated_entry["session_key"] = _key_path_safe(
+                                str(entry_data.get("session_key", key))
+                            )
+                            try:
+                                self._entries[safe_key] = SessionEntry.from_dict(
+                                    migrated_entry
+                                )
+                                migrated_keys += 1
+                                logger.info(
+                                    "gateway.session: migrated legacy session key "
+                                    "%r -> %r (sanitized path-unsafe chars)",
+                                    key,
+                                    safe_key,
+                                )
+                                continue
+                            except (ValueError, KeyError, TypeError):
+                                pass
                         logger.warning("Skipping invalid session entry %r: %s", key, e)
+                if migrated_keys:
+                    # Persist the re-keyed entries so the migration is durable and
+                    # the stale raw-key rows drop out of sessions.json.
+                    self._save()
             except Exception as e:
                 print(f"[gateway] Warning: Failed to load sessions: {e}")
 

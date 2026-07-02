@@ -158,7 +158,7 @@ SEND_MESSAGE_SCHEMA = {
             },
             "target": {
                 "type": "string",
-                "description": "Delivery target. Format: 'platform' (uses home channel), 'platform:#channel-name', 'platform:chat_id', or 'platform:chat_id:thread_id' for Telegram topics and Discord threads. Examples: 'telegram', 'telegram:-1001234567890:17585', 'discord:999888777:555444333', 'discord:#bot-home', 'slack:#engineering', 'signal:+155****4567', 'matrix:!roomid:server.org', 'matrix:@user:server.org', 'ntfy:alerts-channel' (explicit ntfy topic), 'yuanbao:direct:<account_id>' (DM), 'yuanbao:group:<group_code>' (group chat)"
+                "description": "Delivery target. Format: 'platform' (uses home channel), 'platform:#channel-name', 'platform:chat_id', or 'platform:chat_id:thread_id' for Telegram topics, Discord threads, and Zulip stream topics. Examples: 'telegram', 'telegram:-1001234567890:17585', 'discord:999888777:555444333', 'discord:#bot-home', 'slack:#engineering', 'signal:+10000000000', 'matrix:!roomid:server.org', 'matrix:@user:server.org', 'ntfy:alerts-channel' (explicit ntfy topic), 'zulip:general:general chat' (stream topic), 'zulip:dm:alice@example.com', 'zulip:group_dm:a@example.com,b@example.com', 'yuanbao:direct:<account_id>' (DM), 'yuanbao:group:<group_code>' (group chat)"
             },
             "message": {
                 "type": "string",
@@ -520,6 +520,14 @@ def _parse_target_ref(platform_name: str, target_ref: str):
         topic = target_ref.strip()
         if topic:
             return topic, None, True
+    if platform_name == "zulip":
+        trimmed = target_ref.strip()
+        if trimmed.startswith(("dm:", "group_dm:")):
+            return trimmed, None, True
+        if ":" in trimmed:
+            # Zulip stream targets are encoded as ``stream:topic`` or
+            # ``stream_id:topic``. The adapter resolves stream names to IDs.
+            return trimmed, None, True
     if platform_name == "email":
         match = _EMAIL_TARGET_RE.fullmatch(target_ref)
         if match:
@@ -822,6 +830,40 @@ async def _send_to_platform(platform, pconfig, chat_id, message, thread_id=None,
             if isinstance(result, dict) and result.get("error"):
                 return result
             last_result = result
+        return last_result
+
+    # --- Zulip: built-in adapter with standalone sending.
+    # Zulip is not a bundled plugin, so it does not have a PlatformEntry
+    # standalone_sender_fn. Instantiate an ephemeral adapter for cross-process
+    # sends such as cron delivery and send_message tool calls.
+    if platform == Platform.ZULIP:
+        from gateway.platforms import zulip as zulip_mod
+
+        if not zulip_mod.check_zulip_requirements(pconfig):
+            return {"error": "Zulip is not configured or the zulip package is unavailable"}
+
+        adapter = zulip_mod.ZulipAdapter(pconfig)
+        try:
+            if hasattr(adapter, "_build_send_client"):
+                adapter._client = adapter._build_send_client()
+            else:
+                adapter._client = object()
+        except Exception as exc:
+            return {"error": f"Zulip client setup failed: {exc}"}
+
+        last_result = None
+        for i, chunk in enumerate(chunks):
+            is_last = (i == len(chunks) - 1)
+            metadata = {"thread_id": thread_id} if thread_id else None
+            result = await adapter.send(chat_id, chunk, metadata=metadata)
+            if not result.success:
+                return {"error": result.error or "Zulip send failed"}
+            last_result = {
+                "success": True,
+                "platform": "zulip",
+                "chat_id": chat_id,
+                "message_id": result.message_id,
+            }
         return last_result
 
     # --- Matrix: use the native adapter helper when media is present ---

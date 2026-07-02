@@ -5317,6 +5317,28 @@ class DiscordAdapter(BasePlatformAdapter):
         # When auto-threading kicked in, route responses to the new thread
         effective_channel = auto_threaded_channel or message.channel
 
+        if not isinstance(message.channel, discord.DMChannel):
+            try:
+                from gateway.multi_agent_routes import (
+                    discord_route_key,
+                    route_allows_message,
+                )
+
+                guild_for_route = getattr(message, "guild", None)
+                route_key = discord_route_key(
+                    guild_id=str(guild_for_route.id) if guild_for_route else None,
+                    channel_id=str(effective_channel.id),
+                )
+                if not route_allows_message(route_key, mentioned=mention_prefix):
+                    logger.debug(
+                        "[%s] Multi-agent route %s is owned by another profile",
+                        self.name,
+                        route_key,
+                    )
+                    return
+            except Exception:
+                logger.debug("[%s] Multi-agent route check failed", self.name, exc_info=True)
+
         # Determine chat type
         if isinstance(message.channel, discord.DMChannel):
             chat_type = "dm"
