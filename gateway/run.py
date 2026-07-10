@@ -16465,6 +16465,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                         fresh_final_after_seconds=_fresh_final_secs,
                         transport=_scfg.transport or "edit",
                         chat_type=getattr(source, "chat_type", "") or "",
+                        initial_content=(
+                            "Working on it..."
+                            if source.platform == Platform.DISCORD
+                            else ""
+                        ),
                     )
                     _stream_consumer = GatewayStreamConsumer(
                         adapter=_adapter,
@@ -17798,6 +17803,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                             fresh_final_after_seconds=_fresh_final_secs,
                             transport=_scfg.transport or "edit",
                             chat_type=getattr(source, "chat_type", "") or "",
+                            initial_content=(
+                                "Working on it..."
+                                if source.platform == Platform.DISCORD
+                                else ""
+                            ),
                         )
                         _stream_consumer = GatewayStreamConsumer(
                             adapter=_adapter,

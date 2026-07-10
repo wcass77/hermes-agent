@@ -78,6 +78,10 @@ class StreamConsumerConfig:
     # "group", "supergroup", "forum").  Used to gate native draft streaming,
     # which is platform-specific (Telegram drafts are DM-only).
     chat_type: str = ""
+    # Optional visible seed sent before the model emits its first token. This
+    # lets edit-capable platforms acknowledge tool-first turns immediately,
+    # then turn that same message into the streamed answer.
+    initial_content: str = ""
 
 
 class GatewayStreamConsumer:
@@ -559,6 +563,11 @@ class GatewayStreamConsumer:
                 "Stream consumer using native-draft transport (chat=%s draft_id=%s)",
                 self.chat_id, self._draft_id,
             )
+
+        # Tool-first turns can otherwise appear silent until every tool call
+        # has completed. Seed one editable acknowledgement before deltas.
+        if self.cfg.initial_content:
+            await self._send_or_edit(self.cfg.initial_content)
 
         try:
             while True:

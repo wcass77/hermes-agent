@@ -238,6 +238,38 @@ class TestSendOrEditMediaStripping:
         adapter.send.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_initial_content_is_sent_then_replaced_by_streamed_text(self):
+        """A seeded acknowledgement shares the final response's message."""
+        adapter = MagicMock()
+        adapter.send = AsyncMock(return_value=SimpleNamespace(
+            success=True, message_id="msg_1",
+        ))
+        adapter.edit_message = AsyncMock(return_value=SimpleNamespace(success=True))
+        adapter.MAX_MESSAGE_LENGTH = 4096
+        consumer = GatewayStreamConsumer(
+            adapter,
+            "chat_123",
+            StreamConsumerConfig(initial_content="Working on it...", cursor=""),
+        )
+
+        task = asyncio.create_task(consumer.run())
+        await asyncio.sleep(0)
+        adapter.send.assert_awaited_once_with(
+            chat_id="chat_123",
+            content="Working on it...",
+            reply_to=None,
+            metadata={"expect_edits": True},
+        )
+
+        consumer.on_delta("The finished response.")
+        consumer.finish()
+        await task
+
+        adapter.edit_message.assert_awaited()
+        assert adapter.edit_message.call_args.kwargs["message_id"] == "msg_1"
+        assert adapter.edit_message.call_args.kwargs["content"] == "The finished response."
+
+    @pytest.mark.asyncio
     async def test_short_text_with_cursor_skips_new_message(self):
         """Short text + cursor should not create a standalone new message.
 

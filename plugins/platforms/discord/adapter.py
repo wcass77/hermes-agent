@@ -1931,9 +1931,17 @@ class DiscordAdapter(BasePlatformAdapter):
         """Check if message reactions are enabled via config/env."""
         return os.getenv("DISCORD_REACTIONS", "true").lower() not in {"false", "0", "no"}
 
+    def _processing_start_reaction_enabled(self) -> bool:
+        """Whether to add the optional in-progress reaction to a user message."""
+        return (
+            self._reactions_enabled()
+            and os.getenv("DISCORD_PROCESSING_START_REACTION", "true").lower()
+            not in {"false", "0", "no"}
+        )
+
     async def on_processing_start(self, event: MessageEvent) -> None:
         """Add an in-progress reaction for normal Discord message events."""
-        if not self._reactions_enabled():
+        if not self._processing_start_reaction_enabled():
             return
         message = event.raw_message
         if hasattr(message, "add_reaction"):
@@ -8069,6 +8077,13 @@ def _apply_yaml_config(yaml_cfg: dict, discord_cfg: dict) -> dict | None:
         os.environ["DISCORD_AUTO_THREAD"] = str(discord_cfg["auto_thread"]).lower()
     if "reactions" in discord_cfg and not os.getenv("DISCORD_REACTIONS"):
         os.environ["DISCORD_REACTIONS"] = str(discord_cfg["reactions"]).lower()
+    if (
+        "processing_start_reaction" in discord_cfg
+        and not os.getenv("DISCORD_PROCESSING_START_REACTION")
+    ):
+        os.environ["DISCORD_PROCESSING_START_REACTION"] = str(
+            discord_cfg["processing_start_reaction"]
+        ).lower()
     # ignored_channels: channels where bot never responds (even when mentioned)
     ic = discord_cfg.get("ignored_channels")
     if ic is not None and not os.getenv("DISCORD_IGNORED_CHANNELS"):
