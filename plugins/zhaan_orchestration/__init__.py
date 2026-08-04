@@ -27,6 +27,15 @@ def _participant_discord_ids(path: Path) -> set[str]:
     }
 
 
+def _configure_discord_participant_allowlist() -> None:
+    """Bridge the canonical People Registry into Hermes's core auth gate."""
+    people = Path(os.environ.get("ZHAAN_PEOPLE_REGISTRY", "/home/hermes/.hermes/profiles/zhaan/workspace/config/people.yaml"))
+    participant_ids = _participant_discord_ids(people)
+    if not participant_ids:
+        raise RuntimeError(f"Zhaan has no Discord Participants in {people}")
+    os.environ["DISCORD_ALLOWED_USERS"] = ",".join(sorted(participant_ids))
+
+
 def pre_gateway_dispatch(event, **_kwargs):
     source = event.source
     if getattr(source.platform, "value", source.platform) != "discord":
@@ -65,5 +74,6 @@ def _start_server() -> None:
 
 
 def register(ctx) -> None:
+    _configure_discord_participant_allowlist()
     ctx.register_hook("pre_gateway_dispatch", pre_gateway_dispatch)
     _start_server()

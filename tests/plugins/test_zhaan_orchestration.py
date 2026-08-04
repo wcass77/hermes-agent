@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import importlib
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -87,3 +88,22 @@ def test_discord_unknown_user_is_dropped(tmp_path, monkeypatch):
     assert plugin.pre_gateway_dispatch(event)["action"] == "skip"
     source.user_id = "42"
     assert plugin.pre_gateway_dispatch(event)["action"] == "allow"
+
+
+def test_register_derives_core_discord_allowlist_from_people(tmp_path, monkeypatch):
+    people = tmp_path / "people.yaml"
+    people.write_text(yaml.safe_dump({"people": [
+        {"id": "willy", "participant": True, "channels": {"discord_user_id": "42"}},
+        {"id": "other", "participant": True, "channels": {"discord_user_id": "7"}},
+        {"id": "child", "participant": False},
+    ]}))
+    monkeypatch.setenv("ZHAAN_PEOPLE_REGISTRY", str(people))
+    monkeypatch.delenv("DISCORD_ALLOWED_USERS", raising=False)
+    monkeypatch.setattr(plugin, "_start_server", lambda: None)
+    hooks = []
+    context = type("Context", (), {"register_hook": lambda self, name, hook: hooks.append((name, hook))})()
+
+    plugin.register(context)
+
+    assert os.environ["DISCORD_ALLOWED_USERS"] == "42,7"
+    assert hooks == [("pre_gateway_dispatch", plugin.pre_gateway_dispatch)]
