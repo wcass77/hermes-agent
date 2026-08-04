@@ -45,6 +45,32 @@ class Processor:
             paths.append(str(path.relative_to(self.workspace)))
         return paths
 
+    def _remove_archived_staging_attachments(self, attachments: list[str]) -> None:
+        """Remove intake copies only after identical bytes exist in the archive."""
+        archive = (self.workspace / "documents" / "archive" / "sha256").resolve()
+        staging_root = (self.workspace / "inbox" / "agentmail").resolve()
+        for relative in attachments:
+            path = (self.workspace / relative).resolve(strict=True)
+            if staging_root not in path.parents:
+                raise RuntimeError("attachment staging path escaped the AgentMail inbox")
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            bucket = archive / digest[:2] / digest
+            archived = any(
+                candidate.is_file()
+                and hashlib.sha256(candidate.read_bytes()).hexdigest() == digest
+                for candidate in bucket.iterdir()
+            ) if bucket.is_dir() else False
+            if not archived:
+                raise RuntimeError(f"attachment was not archived before processing completed: {relative}")
+            path.unlink()
+            parent = path.parent
+            while parent != staging_root and staging_root in parent.parents:
+                try:
+                    parent.rmdir()
+                except OSError:
+                    break
+                parent = parent.parent
+
     def __call__(self, item: dict[str, Any], session_id: str) -> None:
         message = self.client.get_message(item["inbox_id"], item["message_id"])
         attachments = self._download_attachments(message)
@@ -94,6 +120,7 @@ class Processor:
             })
         try:
             self.client.reply(item["inbox_id"], item["message_id"], reply, attachments=outgoing)
+            self._remove_archived_staging_attachments(attachments)
         finally:
             manifest.unlink(missing_ok=True)
 

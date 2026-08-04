@@ -7,6 +7,7 @@ import hmac
 import importlib
 import json
 import os
+import shutil
 from pathlib import Path
 
 import pytest
@@ -20,6 +21,7 @@ store_mod = importlib.import_module("plugins.zhaan_orchestration.store")
 webhook = importlib.import_module("plugins.zhaan_orchestration.webhook")
 shared_update = importlib.import_module("plugins.zhaan_orchestration.shared_update")
 processor = importlib.import_module("plugins.zhaan_orchestration.processor")
+document_return = importlib.import_module("plugins.zhaan_orchestration.document_return")
 
 
 def test_email_child_does_not_inherit_gateway_identity(monkeypatch):
@@ -158,6 +160,106 @@ def test_register_starts_ingress_only_in_gateway(tmp_path, monkeypatch):
     plugin.register(context)
     assert starts == [True]
 
+
+def cataloged_document(tmp_path, *, contents=b"photo", archive_path=None, digest=None):
+    actual_digest = hashlib.sha256(contents).hexdigest()
+    relative = archive_path or f"documents/archive/sha256/{actual_digest[:2]}/{actual_digest}/Image.jpeg"
+    path = tmp_path / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(contents)
+    catalog = tmp_path / "documents" / "CATALOG.md"
+    catalog.parent.mkdir(parents=True, exist_ok=True)
+    catalog.write_text(
+        "# Document Catalog\n\n## doc-20260804-photo — Image.jpeg\n\n"
+        f"- Archive path: `{relative}`\n- SHA-256: `{digest or actual_digest}`\n",
+        encoding="utf-8",
+    )
+    return path, actual_digest
+
+
+def test_document_resolution_enforces_catalog_path_and_hash(tmp_path):
+    path, digest = cataloged_document(tmp_path)
+    assert document_return.resolve_document(tmp_path, "doc-20260804-photo") == (path, digest)
+    with pytest.raises(ValueError, match="invalid document ID"):
+        document_return.resolve_document(tmp_path, "../../secret")
+
+    cataloged_document(tmp_path, contents=b"changed", digest="0" * 64)
+    with pytest.raises(ValueError, match="integrity"):
+        document_return.resolve_document(tmp_path, "doc-20260804-photo")
+
+    outside = tmp_path / "outside.jpeg"
+    outside.write_bytes(b"outside")
+    cataloged_document(
+        tmp_path, contents=b"outside", archive_path="outside.jpeg",
+        digest=hashlib.sha256(b"outside").hexdigest(),
+    )
+    with pytest.raises(ValueError, match="outside"):
+        document_return.resolve_document(tmp_path, "doc-20260804-photo")
+
+
+def test_document_return_prepares_agentmail_manifest(tmp_path, monkeypatch):
+    path, digest = cataloged_document(tmp_path)
+    manifest = tmp_path / "state" / "attachment.json"
+    monkeypatch.setenv("ZHAAN_WORKSPACE", str(tmp_path))
+    monkeypatch.setenv("ZHAAN_AGENTMAIL_SESSION_ID", "email-session")
+    monkeypatch.setenv("ZHAAN_AGENTMAIL_ATTACHMENT_MANIFEST", str(manifest))
+    result = json.loads(document_return.return_archived_document_tool(
+        {"document_id": "doc-20260804-photo"}, session_id="email-session",
+    ))
+    assert result == {
+        "success": True, "channel": "agentmail", "attachment_prepared": True,
+        "document_id": "doc-20260804-photo",
+    }
+    assert json.loads(manifest.read_text()) == {
+        "document_id": "doc-20260804-photo", "path": str(path), "sha256": digest,
+    }
+
+
+def test_document_return_uploads_to_current_discord_thread(tmp_path, monkeypatch):
+    cataloged_document(tmp_path)
+    monkeypatch.setenv("ZHAAN_WORKSPACE", str(tmp_path))
+    monkeypatch.delenv("ZHAAN_AGENTMAIL_ATTACHMENT_MANIFEST", raising=False)
+    monkeypatch.setattr(document_return, "SessionDB", lambda: type("DB", (), {
+        "get_session": lambda self, _session_id: {
+            "source": "discord", "chat_id": "channel", "thread_id": "thread",
+        }
+    })())
+    from plugins.zhaan_orchestration.shared_update import SharedUpdateService
+    monkeypatch.setattr(SharedUpdateService, "_token", staticmethod(lambda: "token"))
+    captured = {}
+    response = type("Response", (), {
+        "status_code": 200, "json": lambda self: {"id": "message"},
+    })()
+    def post(url, **kwargs):
+        captured.update(url=url, **kwargs)
+        return response
+    monkeypatch.setattr(document_return.requests, "post", post)
+    result = json.loads(document_return.return_archived_document_tool(
+        {"document_id": "doc-20260804-photo"}, session_id="discord-session",
+    ))
+    assert result["success"] and result["message_id"] == "message"
+    assert captured["url"].endswith("/channels/thread/messages")
+    assert captured["headers"] == {"Authorization": "Bot token"}
+    assert captured["files"]["files[0]"][0] == "Image.jpeg"
+
+
+def test_staging_cleanup_requires_identical_archived_copy(tmp_path):
+    service = processor.Processor(object(), tmp_path)
+    staging = tmp_path / "inbox" / "agentmail" / "message" / "Image.jpeg"
+    staging.parent.mkdir(parents=True)
+    staging.write_bytes(b"photo")
+    relative = str(staging.relative_to(tmp_path))
+    with pytest.raises(RuntimeError, match="not archived"):
+        service._remove_archived_staging_attachments([relative])
+    assert staging.exists()
+
+    digest = hashlib.sha256(b"photo").hexdigest()
+    archived = tmp_path / "documents" / "archive" / "sha256" / digest[:2] / digest / "Image.jpeg"
+    archived.parent.mkdir(parents=True)
+    shutil.copyfile(staging, archived)
+    service._remove_archived_staging_attachments([relative])
+    assert not staging.exists()
+    assert not staging.parent.exists()
 
 class FakeSessionDB:
     def __init__(self, *, fail_append=False):
