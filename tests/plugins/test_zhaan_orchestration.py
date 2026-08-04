@@ -118,6 +118,27 @@ def test_register_derives_core_discord_allowlist_from_people(tmp_path, monkeypat
     assert set(schema["properties"]) == {"message"}
 
 
+def test_register_starts_ingress_only_in_gateway(tmp_path, monkeypatch):
+    people = tmp_path / "people.yaml"
+    people.write_text(yaml.safe_dump({"people": [
+        {"id": "willy", "participant": True, "channels": {"discord_user_id": "42"}},
+    ]}))
+    monkeypatch.setenv("ZHAAN_PEOPLE_REGISTRY", str(people))
+    starts = []
+    monkeypatch.setattr(plugin, "_start_server", lambda: starts.append(True))
+    context = type("Context", (), {
+        "register_hook": lambda self, *_: None,
+        "register_tool": lambda self, **_: None,
+    })()
+
+    monkeypatch.delenv("_HERMES_GATEWAY", raising=False)
+    plugin.register(context)
+    assert starts == []
+    monkeypatch.setenv("_HERMES_GATEWAY", "1")
+    plugin.register(context)
+    assert starts == [True]
+
+
 class FakeSessionDB:
     def __init__(self, *, fail_append=False):
         self.sessions = []

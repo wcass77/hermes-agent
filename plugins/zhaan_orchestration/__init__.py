@@ -83,4 +83,5 @@ def register(ctx) -> None:
         description="Post and persist a concise update in today's family Discord thread.",
         emoji="📣",
     )
-    _start_server()
+    if os.environ.get("_HERMES_GATEWAY") == "1":
+        _start_server()
