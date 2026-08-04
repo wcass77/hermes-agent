@@ -1458,6 +1458,25 @@ def _ensure_terminal_env_bridged() -> None:
         logger.debug("terminal config → env fallback bridge failed", exc_info=True)
 
 
+def _map_mounted_host_workdir(workdir: str | None, config: Dict[str, Any]) -> str | None:
+    """Map an explicit path under a Docker-mounted host cwd into /workspace."""
+    if not workdir or config.get("env_type") != "docker":
+        return workdir
+    if not config.get("docker_mount_cwd_to_workspace"):
+        return workdir
+    host_cwd = config.get("host_cwd")
+    if not host_cwd:
+        return workdir
+    try:
+        relative = os.path.relpath(os.path.normpath(workdir), os.path.normpath(host_cwd))
+    except ValueError:
+        return workdir
+    if relative == ".":
+        return "/workspace"
+    if relative == ".." or relative.startswith(f"..{os.sep}"):
+        return workdir
+    return "/workspace/" + relative.replace(os.sep, "/")
+
 def _get_env_config() -> Dict[str, Any]:
     """Get terminal environment configuration from environment variables."""
     # Default image with Python and Node.js for maximum compatibility
