@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 import threading
 from pathlib import Path
 
@@ -17,6 +18,14 @@ from .worker import Worker
 logger = logging.getLogger(__name__)
 _server = None
 _worker = None
+
+
+def _is_gateway_process(argv: list[str] | None = None) -> bool:
+    """Detect gateway startup before gateway.run sets its private marker."""
+    if os.environ.get("_HERMES_GATEWAY") == "1":
+        return True
+    args = list(sys.argv if argv is None else argv)
+    return any(args[index:index + 2] == ["gateway", "run"] for index in range(len(args) - 1))
 
 
 def _participant_discord_ids(path: Path) -> set[str]:
@@ -83,5 +92,5 @@ def register(ctx) -> None:
         description="Post and persist a concise update in today's family Discord thread.",
         emoji="📣",
     )
-    if os.environ.get("_HERMES_GATEWAY") == "1":
+    if _is_gateway_process():
         _start_server()

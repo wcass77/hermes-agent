@@ -132,8 +132,16 @@ def test_register_starts_ingress_only_in_gateway(tmp_path, monkeypatch):
     })()
 
     monkeypatch.delenv("_HERMES_GATEWAY", raising=False)
+    monkeypatch.setattr(plugin.sys, "argv", ["hermes", "--profile", "zhaan", "chat", "-q", "hello"])
     plugin.register(context)
     assert starts == []
+
+    monkeypatch.setattr(plugin.sys, "argv", ["hermes", "--profile", "zhaan", "gateway", "run"])
+    plugin.register(context)
+    assert starts == [True]
+
+    starts.clear()
+    monkeypatch.setattr(plugin.sys, "argv", ["hermes", "--profile", "zhaan", "chat", "-q", "hello"])
     monkeypatch.setenv("_HERMES_GATEWAY", "1")
     plugin.register(context)
     assert starts == [True]
