@@ -13,6 +13,13 @@ from hermes_state import SessionDB
 from .agentmail import Client
 
 
+def child_environment() -> dict[str, str]:
+    """Return an agent-child environment without gateway process identity."""
+    environment = os.environ.copy()
+    environment.pop("_HERMES_GATEWAY", None)
+    return environment
+
+
 def safe_name(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("._") or "attachment"
 
@@ -58,7 +65,7 @@ class Processor:
         )
         result = subprocess.run(
             [self.hermes_command, "--profile", "zhaan", "chat", "--resume", session_id, "-q", prompt, "--quiet"],
-            cwd=self.workspace, text=True, capture_output=True, timeout=1800,
+            cwd=self.workspace, env=child_environment(), text=True, capture_output=True, timeout=1800,
         )
         if result.returncode != 0:
             raise RuntimeError(result.stderr[-2000:] or f"Hermes exited {result.returncode}")

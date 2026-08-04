@@ -19,6 +19,15 @@ plugin = importlib.import_module("plugins.zhaan_orchestration")
 store_mod = importlib.import_module("plugins.zhaan_orchestration.store")
 webhook = importlib.import_module("plugins.zhaan_orchestration.webhook")
 shared_update = importlib.import_module("plugins.zhaan_orchestration.shared_update")
+processor = importlib.import_module("plugins.zhaan_orchestration.processor")
+
+
+def test_email_child_does_not_inherit_gateway_identity(monkeypatch):
+    monkeypatch.setenv("_HERMES_GATEWAY", "1")
+    monkeypatch.setenv("ZHAAN_TEST_VALUE", "kept")
+    environment = processor.child_environment()
+    assert "_HERMES_GATEWAY" not in environment
+    assert environment["ZHAAN_TEST_VALUE"] == "kept"
 
 
 def test_disabled_by_default_registers_no_tools(tmp_path, monkeypatch):
