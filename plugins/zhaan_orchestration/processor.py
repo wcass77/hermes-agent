@@ -44,8 +44,10 @@ class Processor:
         prompt = (
             "A trusted Participant sent this email to Family Assistant. Process it according to AGENTS.md. "
             "Act when clear and reversible; otherwise ask one focused clarification. Archive every attachment "
-            "with receipt provenance before using it. If today's shared understanding changes, send a concise "
-            "Shared Update to Discord. Return only the participant-facing email reply.\n\n"
+            "with receipt provenance before using it. If today's shared understanding changes, use "
+            "post_shared_update with only the concise participant-facing update. Do not use cron for this and "
+            "do not claim the update was shared unless the tool reports both discord_sent and context_mirrored. "
+            "Return only the participant-facing email reply.\n\n"
             + json.dumps({
                 "inbox_id": message.get("inbox_id"), "thread_id": message.get("thread_id"),
                 "message_id": message.get("message_id"), "from": message.get("from"),
