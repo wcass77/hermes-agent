@@ -1,0 +1,6 @@
+name: zhaan_orchestration
+version: "0.1.0"
+description: "Profile-specific durable AgentMail ingress and private Discord session orchestration. Disabled unless explicitly enabled."
+author: wcass77
+hooks:
+  - pre_gateway_dispatch
