@@ -32,10 +32,13 @@ class Client:
         message = urllib.parse.quote(message_id, safe="")
         return self.request("GET", f"/inboxes/{inbox}/messages/{message}")
 
-    def reply(self, inbox_id: str, message_id: str, text: str) -> dict[str, Any]:
+    def reply(self, inbox_id: str, message_id: str, text: str, attachments: list[dict[str, str]] | None = None) -> dict[str, Any]:
         inbox = urllib.parse.quote(inbox_id, safe="")
         message = urllib.parse.quote(message_id, safe="")
-        return self.request("POST", f"/inboxes/{inbox}/messages/{message}/reply", {"text": text})
+        body: dict[str, Any] = {"text": text}
+        if attachments:
+            body["attachments"] = attachments
+        return self.request("POST", f"/inboxes/{inbox}/messages/{message}/reply", body)
 
     def attachment_url(self, inbox_id: str, message_id: str, attachment_id: str) -> str:
         parts = [urllib.parse.quote(value, safe="") for value in (inbox_id, message_id, attachment_id)]

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import base64
+import hashlib
+import mimetypes
 import os
 import re
 import subprocess
@@ -63,16 +66,36 @@ class Processor:
                 "attachment_paths": attachments,
             }, ensure_ascii=False)
         )
+        manifest = self.workspace.parent / "state" / "agentmail-attachments" / f"{safe_name(str(item['event_id']))}.json"
+        manifest.unlink(missing_ok=True)
+        environment = child_environment()
+        environment["ZHAAN_AGENTMAIL_SESSION_ID"] = session_id
+        environment["ZHAAN_AGENTMAIL_ATTACHMENT_MANIFEST"] = str(manifest)
         result = subprocess.run(
             [self.hermes_command, "--profile", "zhaan", "chat", "--resume", session_id, "-q", prompt, "--quiet"],
-            cwd=self.workspace, env=child_environment(), text=True, capture_output=True, timeout=1800,
+            cwd=self.workspace, env=environment, text=True, capture_output=True, timeout=1800,
         )
         if result.returncode != 0:
             raise RuntimeError(result.stderr[-2000:] or f"Hermes exited {result.returncode}")
         reply = result.stdout.strip()
         if not reply:
             raise RuntimeError("Hermes returned an empty email reply")
-        self.client.reply(item["inbox_id"], item["message_id"], reply)
+        outgoing = []
+        if manifest.is_file():
+            prepared = json.loads(manifest.read_text(encoding="utf-8"))
+            path = Path(prepared["path"]).resolve(strict=True)
+            archive = (self.workspace / "documents" / "archive").resolve()
+            if archive not in path.parents or hashlib.sha256(path.read_bytes()).hexdigest() != prepared["sha256"]:
+                raise RuntimeError("prepared email attachment failed safety verification")
+            outgoing.append({
+                "content": base64.b64encode(path.read_bytes()).decode(),
+                "filename": path.name,
+                "content_type": mimetypes.guess_type(path.name)[0] or "application/octet-stream",
+            })
+        try:
+            self.client.reply(item["inbox_id"], item["message_id"], reply, attachments=outgoing)
+        finally:
+            manifest.unlink(missing_ok=True)
 
     def failure_reply(self, item: dict[str, Any]) -> None:
         self.client.reply(

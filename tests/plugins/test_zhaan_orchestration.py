@@ -121,10 +121,13 @@ def test_register_derives_core_discord_allowlist_from_people(tmp_path, monkeypat
 
     assert os.environ["DISCORD_ALLOWED_USERS"] == "42,7"
     assert hooks == [("pre_gateway_dispatch", plugin.pre_gateway_dispatch)]
-    assert [item["name"] for item in tools] == ["post_shared_update"]
+    assert [item["name"] for item in tools] == ["post_shared_update", "return_archived_document"]
     schema = tools[0]["schema"]["parameters"]
     assert schema["required"] == ["message"]
     assert set(schema["properties"]) == {"message"}
+    document_schema = tools[1]["schema"]["parameters"]
+    assert document_schema["required"] == ["document_id"]
+    assert set(document_schema["properties"]) == {"document_id"}
 
 
 def test_register_starts_ingress_only_in_gateway(tmp_path, monkeypatch):

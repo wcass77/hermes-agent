@@ -12,6 +12,7 @@ import yaml
 
 from .store import Store
 from .shared_update import POST_SHARED_UPDATE_SCHEMA, post_shared_update_tool
+from .document_return import RETURN_ARCHIVED_DOCUMENT_SCHEMA, return_archived_document_tool
 from .webhook import Server
 from .worker import Worker
 
@@ -91,6 +92,11 @@ def register(ctx) -> None:
         schema=POST_SHARED_UPDATE_SCHEMA, handler=post_shared_update_tool,
         description="Post and persist a concise update in today's family Discord thread.",
         emoji="📣",
+    )
+    ctx.register_tool(
+        name="return_archived_document", toolset="zhaan",
+        schema=RETURN_ARCHIVED_DOCUMENT_SCHEMA, handler=return_archived_document_tool,
+        description="Return a cataloged family document through the current conversation.", emoji="📎",
     )
     if _is_gateway_process():
         _start_server()
