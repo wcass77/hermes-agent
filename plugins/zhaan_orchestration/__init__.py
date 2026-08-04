@@ -1,4 +1,4 @@
-"""Zhaan-only orchestration hooks. This plugin intentionally registers no tools."""
+"""Zhaan-only orchestration hooks and the narrow Shared Update tool."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from pathlib import Path
 import yaml
 
 from .store import Store
+from .shared_update import POST_SHARED_UPDATE_SCHEMA, post_shared_update_tool
 from .webhook import Server
 from .worker import Worker
 
@@ -76,4 +77,10 @@ def _start_server() -> None:
 def register(ctx) -> None:
     _configure_discord_participant_allowlist()
     ctx.register_hook("pre_gateway_dispatch", pre_gateway_dispatch)
+    ctx.register_tool(
+        name="post_shared_update", toolset="zhaan",
+        schema=POST_SHARED_UPDATE_SCHEMA, handler=post_shared_update_tool,
+        description="Post and persist a concise update in today's family Discord thread.",
+        emoji="📣",
+    )
     _start_server()

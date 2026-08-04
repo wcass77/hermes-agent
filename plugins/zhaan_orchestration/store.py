@@ -28,6 +28,11 @@ CREATE TABLE IF NOT EXISTS reminder_sessions (
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
   PRIMARY KEY(participant_id, plan_date)
 );
+CREATE TABLE IF NOT EXISTS daily_threads (
+  plan_date TEXT PRIMARY KEY, channel_id TEXT NOT NULL,
+  thread_id TEXT NOT NULL UNIQUE, session_id TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
 """
 
 
@@ -97,6 +102,31 @@ class Store:
             )
             db.commit()
             return session_id
+
+    def daily_thread(self, plan_date: str) -> dict[str, str] | None:
+        with self.connect() as db:
+            db.row_factory = sqlite3.Row
+            row = db.execute(
+                "SELECT * FROM daily_threads WHERE plan_date=?", (plan_date,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def save_daily_thread(
+        self, plan_date: str, channel_id: str, thread_id: str, session_id: str
+    ) -> None:
+        now = utcnow()
+        with self.connect() as db:
+            db.execute(
+                """INSERT INTO daily_threads
+                   (plan_date,channel_id,thread_id,session_id,created_at,updated_at)
+                   VALUES(?,?,?,?,?,?)
+                   ON CONFLICT(plan_date) DO UPDATE SET
+                     channel_id=excluded.channel_id,
+                     thread_id=excluded.thread_id,
+                     session_id=excluded.session_id,
+                     updated_at=excluded.updated_at""",
+                (plan_date, channel_id, thread_id, session_id, now, now),
+            )
 
     def sync_reminder_context(
         self,

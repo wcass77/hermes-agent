@@ -18,9 +18,10 @@ from hermes_cli.plugins import PluginManager
 plugin = importlib.import_module("plugins.zhaan_orchestration")
 store_mod = importlib.import_module("plugins.zhaan_orchestration.store")
 webhook = importlib.import_module("plugins.zhaan_orchestration.webhook")
+shared_update = importlib.import_module("plugins.zhaan_orchestration.shared_update")
 
 
-def test_disabled_by_default_and_no_tools(tmp_path, monkeypatch):
+def test_disabled_by_default_registers_no_tools(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     manager = PluginManager()
     manager.discover_and_load()
@@ -101,9 +102,115 @@ def test_register_derives_core_discord_allowlist_from_people(tmp_path, monkeypat
     monkeypatch.delenv("DISCORD_ALLOWED_USERS", raising=False)
     monkeypatch.setattr(plugin, "_start_server", lambda: None)
     hooks = []
-    context = type("Context", (), {"register_hook": lambda self, name, hook: hooks.append((name, hook))})()
+    tools = []
+    context = type("Context", (), {
+        "register_hook": lambda self, name, hook: hooks.append((name, hook)),
+        "register_tool": lambda self, **kwargs: tools.append(kwargs),
+    })()
 
     plugin.register(context)
 
     assert os.environ["DISCORD_ALLOWED_USERS"] == "42,7"
     assert hooks == [("pre_gateway_dispatch", plugin.pre_gateway_dispatch)]
+    assert [item["name"] for item in tools] == ["post_shared_update"]
+    schema = tools[0]["schema"]["parameters"]
+    assert schema["required"] == ["message"]
+    assert set(schema["properties"]) == {"message"}
+
+
+class FakeSessionDB:
+    def __init__(self, *, fail_append=False):
+        self.sessions = []
+        self.peers = []
+        self.messages = []
+        self.fail_append = fail_append
+
+    def create_session(self, session_id, source, **kwargs):
+        self.sessions.append((session_id, source, kwargs))
+
+    def reopen_session(self, _session_id):
+        return None
+
+    def record_gateway_session_peer(self, session_id, **kwargs):
+        self.peers.append((session_id, kwargs))
+
+    def append_message(self, **kwargs):
+        if self.fail_append:
+            raise RuntimeError("state unavailable")
+        self.messages.append(kwargs)
+
+    def close(self):
+        return None
+
+
+def test_shared_update_creates_one_daily_thread_and_mirrors(tmp_path):
+    store = store_mod.Store(tmp_path / "orchestration.sqlite")
+    requests = []
+    created = []
+    sent = []
+    db = FakeSessionDB()
+
+    def request(method, path, _token, **kwargs):
+        requests.append((method, path, kwargs))
+        if path == "/channels/123":
+            return {"guild_id": "guild"}
+        if path == "/guilds/guild/threads/active":
+            return {"threads": []}
+        if path == "/channels/123/threads/archived/public":
+            return {"threads": []}
+        if path == "/channels/456":
+            return {"id": "456", "parent_id": "123", "name": "Tuesday, August 4, 2026"}
+        raise AssertionError((method, path))
+
+    def create(_token, channel_id, name):
+        created.append((channel_id, name))
+        return {"success": True, "thread_id": "456", "name": name}
+
+    def send(target, message):
+        sent.append((target, message))
+        return {"success": True, "message_id": "789"}
+
+    service = shared_update.SharedUpdateService(
+        store, tmp_path, channel_id="123", discord_request=request,
+        create_thread=create, send_message=send, session_db_factory=lambda: db,
+    )
+    instant = dt.datetime(2026, 8, 4, 16, tzinfo=dt.timezone.utc)
+    first = service.post("School closes at 2 PM.", now=instant)
+    second = service.post("Pickup is at the west door.", now=instant)
+
+    assert first["success"] and first["context_mirrored"]
+    assert second["success"] and second["context_mirrored"]
+    assert created == [("123", "Tuesday, August 4, 2026")]
+    assert sent == [
+        ("discord:456:456", "School closes at 2 PM."),
+        ("discord:456:456", "Pickup is at the west door."),
+    ]
+    assert [item["content"] for item in db.messages] == [
+        "School closes at 2 PM.", "Pickup is at the west door.",
+    ]
+    assert store.daily_thread("2026-08-04")["session_id"] == "zhaan-daily-2026-08-04"
+
+
+def test_shared_update_reports_visible_but_unmirrored_partial_failure(tmp_path):
+    store = store_mod.Store(tmp_path / "orchestration.sqlite")
+    db = FakeSessionDB(fail_append=True)
+
+    def request(_method, path, _token, **_kwargs):
+        if path == "/channels/456":
+            return {"id": "456", "parent_id": "123", "name": "Tuesday, August 4, 2026"}
+        if path == "/channels/123":
+            return {"guild_id": "guild"}
+        return {"threads": [{"id": "456", "parent_id": "123", "name": "Tuesday, August 4, 2026"}]}
+
+    service = shared_update.SharedUpdateService(
+        store, tmp_path, channel_id="123", discord_request=request,
+        send_message=lambda *_: {"success": True, "message_id": "789"},
+        session_db_factory=lambda: db,
+    )
+    result = service.post(
+        "Update", now=dt.datetime(2026, 8, 4, 16, tzinfo=dt.timezone.utc)
+    )
+    assert not result["success"]
+    assert result["discord_sent"]
+    assert not result["context_mirrored"]
+    assert result["message_id"] == "789"
