@@ -158,7 +158,7 @@ SEND_MESSAGE_SCHEMA = {
             },
             "target": {
                 "type": "string",
-                "description": "Delivery target. Format: 'platform' (uses home channel), 'platform:#channel-name', 'platform:chat_id', or 'platform:chat_id:thread_id' for Telegram topics, Discord threads, and Zulip stream topics. Examples: 'telegram', 'telegram:-1001234567890:17585', 'discord:999888777:555444333', 'discord:#bot-home', 'slack:#engineering', 'signal:+10000000000', 'matrix:!roomid:server.org', 'matrix:@user:server.org', 'ntfy:alerts-channel' (explicit ntfy topic), 'zulip:general:general chat' (stream topic), 'zulip:dm:alice@example.com', 'zulip:group_dm:a@example.com,b@example.com', 'yuanbao:direct:<account_id>' (DM), 'yuanbao:group:<group_code>' (group chat)"
+                "description": "Delivery target. Format: 'platform' (uses home channel), 'platform:#channel-name', 'platform:chat_id', or 'platform:chat_id:thread_id' for Telegram topics and Discord threads. Examples: 'telegram', 'telegram:-1001234567890:17585', 'discord:999888777:555444333', 'discord:#bot-home', 'slack:#engineering', 'signal:+155****4567', 'matrix:!roomid:server.org', 'matrix:@user:server.org', 'ntfy:alerts-channel' (explicit ntfy topic), 'yuanbao:direct:<account_id>' (DM), 'yuanbao:group:<group_code>' (group chat)"
             },
             "message": {
                 "type": "string",
@@ -478,13 +478,6 @@ def _parse_target_ref(platform_name: str, target_ref: str):
         match = _TELEGRAM_TOPIC_TARGET_RE.fullmatch(target_ref)
         if match:
             return match.group(1), match.group(2), True
-        from plugins.platforms.telegram.telegram_ids import (
-            parse_telegram_username_target,
-        )
-
-        username = parse_telegram_username_target(target_ref)
-        if username:
-            return username, None, True
     if platform_name == "feishu":
         match = _FEISHU_TARGET_RE.fullmatch(target_ref)
         if match:
@@ -527,14 +520,6 @@ def _parse_target_ref(platform_name: str, target_ref: str):
         topic = target_ref.strip()
         if topic:
             return topic, None, True
-    if platform_name == "zulip":
-        trimmed = target_ref.strip()
-        if trimmed.startswith(("dm:", "group_dm:")):
-            return trimmed, None, True
-        if ":" in trimmed:
-            # Zulip stream targets are encoded as ``stream:topic`` or
-            # ``stream_id:topic``. The adapter resolves stream names to IDs.
-            return trimmed, None, True
     if platform_name == "email":
         match = _EMAIL_TARGET_RE.fullmatch(target_ref)
         if match:
@@ -793,22 +778,24 @@ async def _send_to_platform(platform, pconfig, chat_id, message, thread_id=None,
         chunks = [message]
 
     # --- Telegram: special handling for media attachments ---
-    # _send_telegram now owns text chunking internally — it formats the full
-    # message (MarkdownV2/HTML) and then splits the *formatted* text on UTF-16
-    # length so escaping inflation can't push a chunk over Telegram's 4096
-    # limit (issue #28557). Pass the whole message in one call; media attaches
-    # after all text chunks.
     if platform == Platform.TELEGRAM:
+        last_result = None
         disable_link_previews = bool(getattr(pconfig, "extra", {}) and pconfig.extra.get("disable_link_previews"))
-        return await _send_telegram(
-            pconfig.token,
-            chat_id,
-            message,
-            media_files=media_files,
-            thread_id=thread_id,
-            disable_link_previews=disable_link_previews,
-            force_document=force_document,
-        )
+        for i, chunk in enumerate(chunks):
+            is_last = (i == len(chunks) - 1)
+            result = await _send_telegram(
+                pconfig.token,
+                chat_id,
+                chunk,
+                media_files=media_files if is_last else [],
+                thread_id=thread_id,
+                disable_link_previews=disable_link_previews,
+                force_document=force_document,
+            )
+            if isinstance(result, dict) and result.get("error"):
+                return result
+            last_result = result
+        return last_result
 
     # --- Discord: chunked delivery via the registry's standalone_sender_fn.
     # The plugin's ``_standalone_send`` (registered in
@@ -837,46 +824,8 @@ async def _send_to_platform(platform, pconfig, chat_id, message, thread_id=None,
             last_result = result
         return last_result
 
-    # --- Zulip: built-in adapter with standalone sending.
-    # Zulip is not a bundled plugin, so it does not have a PlatformEntry
-    # standalone_sender_fn. Instantiate an ephemeral adapter for cross-process
-    # sends such as cron delivery and send_message tool calls.
-    if platform == Platform.ZULIP:
-        from gateway.platforms import zulip as zulip_mod
-
-        if not zulip_mod.check_zulip_requirements(pconfig):
-            return {"error": "Zulip is not configured or the zulip package is unavailable"}
-
-        adapter = zulip_mod.ZulipAdapter(pconfig)
-        try:
-            if hasattr(adapter, "_build_send_client"):
-                adapter._client = adapter._build_send_client()
-            else:
-                adapter._client = object()
-        except Exception as exc:
-            return {"error": f"Zulip client setup failed: {exc}"}
-
-        last_result = None
-        for i, chunk in enumerate(chunks):
-            is_last = (i == len(chunks) - 1)
-            metadata = {"thread_id": thread_id} if thread_id else None
-            result = await adapter.send(chat_id, chunk, metadata=metadata)
-            if not result.success:
-                return {"error": result.error or "Zulip send failed"}
-            last_result = {
-                "success": True,
-                "platform": "zulip",
-                "chat_id": chat_id,
-                "message_id": result.message_id,
-            }
-        return last_result
-
-    # --- Matrix: route ALL sends through the native adapter so text is
-    # encrypted in E2EE rooms too (issue: text-only sends arrived with a red
-    # padlock because they took the raw-HTTP standalone path). The adapter
-    # reuses the live gateway's E2EE session when available (#46310) and falls
-    # back to an encryption-aware ephemeral adapter for standalone/cron. ---
-    if platform == Platform.MATRIX:
+    # --- Matrix: use the native adapter helper when media is present ---
+    if platform == Platform.MATRIX and media_files:
         last_result = None
         for i, chunk in enumerate(chunks):
             is_last = (i == len(chunks) - 1)
@@ -947,38 +896,11 @@ async def _send_to_platform(platform, pconfig, chat_id, message, thread_id=None,
             last_result = result
         return last_result
 
-    # --- WhatsApp: native media attachment support via the registry's
-    # standalone_sender_fn (plugins/platforms/whatsapp/adapter.py::_standalone_send).
-    # The plugin uploads each file through the local Baileys bridge /send-media
-    # endpoint so images/videos/audio arrive as native bubbles, not documents. #41112
-    if platform == Platform.WHATSAPP and media_files:
-        from gateway.platform_registry import platform_registry as _pr_wa
-        from hermes_cli.plugins import discover_plugins as _dp_wa
-        _dp_wa()
-        _wa_entry = _pr_wa.get("whatsapp")
-        if _wa_entry is None or _wa_entry.standalone_sender_fn is None:
-            return {"error": "WhatsApp plugin not registered or missing standalone_sender_fn"}
-        last_result = None
-        for i, chunk in enumerate(chunks):
-            is_last = (i == len(chunks) - 1)
-            result = await _wa_entry.standalone_sender_fn(
-                pconfig,
-                chat_id,
-                chunk,
-                media_files=media_files if is_last else None,
-                thread_id=thread_id,
-                force_document=force_document,
-            )
-            if isinstance(result, dict) and result.get("error"):
-                return result
-            last_result = result
-        return last_result
-
     # --- Non-media platforms ---
     if media_files and not message.strip():
         return {
             "error": (
-                f"send_message MEDIA delivery is currently only supported for telegram, discord, matrix, weixin, signal, yuanbao, feishu and whatsapp; "
+                f"send_message MEDIA delivery is currently only supported for telegram, discord, matrix, weixin, signal, yuanbao and feishu; "
                 f"target {platform.value} had only media attachments"
             )
         }
@@ -986,7 +908,7 @@ async def _send_to_platform(platform, pconfig, chat_id, message, thread_id=None,
     if media_files:
         warning = (
             f"MEDIA attachments were omitted for {platform.value}; "
-            "native send_message media delivery is currently only supported for telegram, discord, matrix, weixin, signal, yuanbao, feishu and whatsapp"
+            "native send_message media delivery is currently only supported for telegram, discord, matrix, weixin, signal, yuanbao and feishu"
         )
 
     last_result = None
@@ -1011,6 +933,8 @@ async def _send_to_platform(platform, pconfig, chat_id, message, thread_id=None,
             result = await _registry_standalone_send("email", pconfig, chat_id, chunk, thread_id)
         elif platform == Platform.SMS:
             result = await _registry_standalone_send("sms", pconfig, chat_id, chunk, thread_id)
+        elif platform == Platform.MATRIX:
+            result = await _registry_standalone_send("matrix", pconfig, chat_id, chunk, thread_id)
         elif platform == Platform.DINGTALK:
             result = await _registry_standalone_send("dingtalk", pconfig, chat_id, chunk, thread_id)
         elif platform == Platform.FEISHU:
@@ -1110,13 +1034,7 @@ async def _send_telegram(token, chat_id, message, media_files=None, thread_id=No
                 bot = Bot(token=token)
         else:
             bot = Bot(token=token)
-        from plugins.platforms.telegram.telegram_ids import (
-            normalize_telegram_chat_id,
-        )
-
-        # Telegram accepts a numeric chat_id OR an @username string; normalize
-        # rather than force-int so username home channels don't crash (#13206).
-        int_chat_id = normalize_telegram_chat_id(chat_id)
+        int_chat_id = int(chat_id)
         media_files = media_files or []
         thread_kwargs = {}
         if thread_id is not None:
@@ -1152,60 +1070,48 @@ async def _send_telegram(token, chat_id, message, media_files=None, thread_id=No
         warnings = []
 
         if formatted.strip():
-            # Chunk *after* formatting: MarkdownV2/HTML escaping inflates the
-            # text (each escaped char like `!`/`.`/`-` becomes `\!`/`\.`/`\-`),
-            # so a message that fit under 4096 UTF-16 units raw can exceed the
-            # Telegram limit once formatted and get rejected as "Message is too
-            # long". Sizing on the formatted text in UTF-16 units guarantees
-            # every chunk is deliverable. (issue #28557)
-            from gateway.platforms.base import BasePlatformAdapter, utf16_len
-
-            text_chunks = BasePlatformAdapter.truncate_message(
-                formatted, 4096, len_fn=utf16_len
-            )
-            for chunk in text_chunks:
-                try:
+            try:
+                last_msg = await _send_telegram_message_with_retry(
+                    bot,
+                    chat_id=int_chat_id, text=formatted,
+                    parse_mode=send_parse_mode, **text_kwargs
+                )
+            except Exception as md_error:
+                # Thread not found — retry without message_thread_id so the
+                # message still delivers (matching the gateway adapter's
+                # fallback behaviour, issue #27012).
+                if _is_telegram_thread_not_found(md_error) and thread_kwargs:
+                    logger.warning(
+                        "Thread %s not found in _send_telegram, retrying without message_thread_id",
+                        thread_kwargs.get("message_thread_id"),
+                    )
+                    text_kwargs.pop("message_thread_id", None)
                     last_msg = await _send_telegram_message_with_retry(
                         bot,
-                        chat_id=int_chat_id, text=chunk,
+                        chat_id=int_chat_id, text=formatted,
                         parse_mode=send_parse_mode, **text_kwargs
                     )
-                except Exception as md_error:
-                    # Thread not found — retry without message_thread_id so the
-                    # message still delivers (matching the gateway adapter's
-                    # fallback behaviour, issue #27012).
-                    if _is_telegram_thread_not_found(md_error) and text_kwargs.get("message_thread_id") is not None:
-                        logger.warning(
-                            "Thread %s not found in _send_telegram, retrying without message_thread_id",
-                            text_kwargs.get("message_thread_id"),
-                        )
-                        text_kwargs.pop("message_thread_id", None)
-                        last_msg = await _send_telegram_message_with_retry(
-                            bot,
-                            chat_id=int_chat_id, text=chunk,
-                            parse_mode=send_parse_mode, **text_kwargs
-                        )
-                    elif "parse" in str(md_error).lower() or "markdown" in str(md_error).lower() or "html" in str(md_error).lower():
-                        logger.warning(
-                            "Parse mode %s failed in _send_telegram, falling back to plain text: %s",
-                            send_parse_mode,
-                            _sanitize_error_text(md_error),
-                        )
-                        if not _has_html:
-                            try:
-                                from plugins.platforms.telegram.adapter import _strip_mdv2
-                                plain = _strip_mdv2(chunk)
-                            except Exception:
-                                plain = chunk
-                        else:
-                            plain = chunk
-                        last_msg = await _send_telegram_message_with_retry(
-                            bot,
-                            chat_id=int_chat_id, text=plain,
-                            parse_mode=None, **text_kwargs
-                        )
+                elif "parse" in str(md_error).lower() or "markdown" in str(md_error).lower() or "html" in str(md_error).lower():
+                    logger.warning(
+                        "Parse mode %s failed in _send_telegram, falling back to plain text: %s",
+                        send_parse_mode,
+                        _sanitize_error_text(md_error),
+                    )
+                    if not _has_html:
+                        try:
+                            from plugins.platforms.telegram.adapter import _strip_mdv2
+                            plain = _strip_mdv2(formatted)
+                        except Exception:
+                            plain = message
                     else:
-                        raise
+                        plain = message
+                    last_msg = await _send_telegram_message_with_retry(
+                        bot,
+                        chat_id=int_chat_id, text=plain,
+                        parse_mode=None, **text_kwargs
+                    )
+                else:
+                    raise
 
         for media_path, is_voice in media_files:
             if not os.path.exists(media_path):
@@ -1522,70 +1428,56 @@ async def _send_signal(extra, chat_id, message, media_files=None):
 
 
 async def _send_matrix_via_adapter(pconfig, chat_id, message, media_files=None, thread_id=None):
-    """Send via the Matrix adapter so native Matrix media uploads are preserved.
-
-    When a live gateway adapter is available (i.e. the tool runs inside a
-    running gateway), the persistent connection is reused — one olm/megolm
-    session for all sends.  This avoids per-message E2EE re-init storms
-    that exhaust recipient OTKs and silently drop messages (issue #46310).
-
-    Falls back to an ephemeral connect/disconnect cycle only when no gateway
-    is running (standalone cron, ``hermes send`` CLI).
-    """
-    media_files = media_files or []
-    metadata = {"thread_id": thread_id} if thread_id else None
-
-    # --- Try the live gateway adapter first (persistent E2EE session) ---
-    # Reusing the running gateway's already-connected adapter is the whole
-    # point of #46310: it avoids a per-send login + olm/megolm re-init + OTK
-    # claim that, under burst sends, exhausts recipient one-time keys and
-    # silently drops messages. The import is guarded narrowly (gateway code may
-    # be absent in some standalone contexts); a runner that *exists* but whose
-    # adapter lookup fails is logged rather than silently swallowed, because a
-    # silent fall-through here would re-introduce the exact reconnect storm
-    # this fix prevents.
-    live_adapter = None
-    runner = None
-    try:
-        from gateway.run import _gateway_runner_ref
-        runner = _gateway_runner_ref()
-    except Exception:
-        runner = None
-    if runner is not None:
-        try:
-            from gateway.config import Platform
-            live_adapter = runner.adapters.get(Platform.MATRIX)
-        except Exception:
-            logger.warning(
-                "Matrix: live gateway adapter lookup failed; falling back to an "
-                "ephemeral connect (may re-init E2EE per send, see #46310)",
-                exc_info=True,
-            )
-            live_adapter = None
-
-    if live_adapter is not None:
-        # NOTE: the live adapter is owned by the gateway — we must NOT
-        # disconnect it. Correctness here depends on this branch returning
-        # before the ephemeral ``adapter`` is constructed below, so the
-        # ephemeral ``finally`` disconnect never touches the live session.
-        return await _matrix_send_core(
-            live_adapter, chat_id, message, media_files, metadata
-        )
-
-    # --- Fallback: ephemeral adapter (standalone / cron context) ---
+    """Send via the Matrix adapter so native Matrix media uploads are preserved."""
     try:
         from plugins.platforms.matrix.adapter import MatrixAdapter
     except ImportError:
         return {"error": "Matrix dependencies not installed. Run: pip install 'mautrix[encryption]'"}
 
-    adapter = MatrixAdapter(pconfig)
+    media_files = media_files or []
+
     try:
+        adapter = MatrixAdapter(pconfig)
         connected = await adapter.connect()
         if not connected:
             return _error("Matrix connect failed")
-        return await _matrix_send_core(
-            adapter, chat_id, message, media_files, metadata
-        )
+
+        metadata = {"thread_id": thread_id} if thread_id else None
+        last_result = None
+
+        if message.strip():
+            last_result = await adapter.send(chat_id, message, metadata=metadata)
+            if not last_result.success:
+                return _error(f"Matrix send failed: {last_result.error}")
+
+        for media_path, is_voice in media_files:
+            if not os.path.exists(media_path):
+                return _error(f"Media file not found: {media_path}")
+
+            ext = os.path.splitext(media_path)[1].lower()
+            if ext in _IMAGE_EXTS:
+                last_result = await adapter.send_image_file(chat_id, media_path, metadata=metadata)
+            elif ext in _VIDEO_EXTS:
+                last_result = await adapter.send_video(chat_id, media_path, metadata=metadata)
+            elif ext in _VOICE_EXTS and is_voice:
+                last_result = await adapter.send_voice(chat_id, media_path, metadata=metadata)
+            elif ext in _AUDIO_EXTS:
+                last_result = await adapter.send_voice(chat_id, media_path, metadata=metadata)
+            else:
+                last_result = await adapter.send_document(chat_id, media_path, metadata=metadata)
+
+            if not last_result.success:
+                return _error(f"Matrix media send failed: {last_result.error}")
+
+        if last_result is None:
+            return {"error": "No deliverable text or media remained after processing MEDIA tags"}
+
+        return {
+            "success": True,
+            "platform": "matrix",
+            "chat_id": chat_id,
+            "message_id": last_result.message_id,
+        }
     except Exception as e:
         return _error(f"Matrix send failed: {e}")
     finally:
@@ -1593,45 +1485,6 @@ async def _send_matrix_via_adapter(pconfig, chat_id, message, media_files=None, 
             await adapter.disconnect()
         except Exception:
             pass
-
-
-async def _matrix_send_core(adapter, chat_id, message, media_files, metadata):
-    """Core send logic shared by live and ephemeral Matrix adapters."""
-    last_result = None
-
-    if message.strip():
-        last_result = await adapter.send(chat_id, message, metadata=metadata)
-        if not last_result.success:
-            return _error(f"Matrix send failed: {last_result.error}")
-
-    for media_path, is_voice in media_files:
-        if not os.path.exists(media_path):
-            return _error(f"Media file not found: {media_path}")
-
-        ext = os.path.splitext(media_path)[1].lower()
-        if ext in _IMAGE_EXTS:
-            last_result = await adapter.send_image_file(chat_id, media_path, metadata=metadata)
-        elif ext in _VIDEO_EXTS:
-            last_result = await adapter.send_video(chat_id, media_path, metadata=metadata)
-        elif ext in _VOICE_EXTS and is_voice:
-            last_result = await adapter.send_voice(chat_id, media_path, metadata=metadata)
-        elif ext in _AUDIO_EXTS:
-            last_result = await adapter.send_voice(chat_id, media_path, metadata=metadata)
-        else:
-            last_result = await adapter.send_document(chat_id, media_path, metadata=metadata)
-
-        if not last_result.success:
-            return _error(f"Matrix media send failed: {last_result.error}")
-
-    if last_result is None:
-        return {"error": "No deliverable text or media remained after processing MEDIA tags"}
-
-    return {
-        "success": True,
-        "platform": "matrix",
-        "chat_id": chat_id,
-        "message_id": last_result.message_id,
-    }
 
 
 # _send_dingtalk moved to plugins/platforms/dingtalk/adapter.py::_standalone_send,
@@ -1752,7 +1605,7 @@ async def _send_qqbot(pconfig, chat_id, message):
             token_data = token_resp.json()
             access_token = token_data.get("access_token")
             if not access_token:
-                return _error("QQBot: no access_token in response")
+                return _error(f"QQBot: no access_token in response")
 
             # Step 2: Send message via REST
             # QQ Bot API has separate endpoints for channels, C2C, and groups.

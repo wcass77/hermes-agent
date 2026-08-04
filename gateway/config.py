@@ -198,7 +198,6 @@ class Platform(Enum):
     BLUEBUBBLES = "bluebubbles"
     QQBOT = "qqbot"
     YUANBAO = "yuanbao"
-    ZULIP = "zulip"
     RELAY = "relay"  # generic relay adapter fronted by the connector (EXPERIMENTAL)
     @classmethod
     def _missing_(cls, value):
@@ -695,13 +694,6 @@ class GatewayConfig:
             return bool(
                 config.extra.get("account_id")
                 and (config.token or config.extra.get("token"))
-            )
-
-        if platform == Platform.ZULIP:
-            return bool(
-                config.extra.get("site_url")
-                and config.extra.get("bot_email")
-                and (config.token or config.api_key)
             )
 
         # Generic token/api_key auth covers Telegram, Discord, Slack, etc.
@@ -2043,96 +2035,6 @@ def _apply_env_overrides(config: GatewayConfig) -> None:
         yuanbao_group_allow_from = getenv("YUANBAO_GROUP_ALLOW_FROM")
         if yuanbao_group_allow_from:
             extra["group_allow_from"] = yuanbao_group_allow_from
-
-    zulip_api_key = os.getenv("ZULIP_API_KEY")
-    zulip_email = os.getenv("ZULIP_BOT_EMAIL")
-    zulip_site = os.getenv("ZULIP_SITE_URL")
-    zulip_default_stream = os.getenv("ZULIP_DEFAULT_STREAM")
-    zulip_home_topic = os.getenv("ZULIP_HOME_TOPIC", "").strip()
-    zulip_home = os.getenv("ZULIP_HOME_CHANNEL")
-    zulip_allowed_users = os.getenv("ZULIP_ALLOWED_USERS")
-    zulip_allowed_streams = os.getenv("ZULIP_ALLOWED_STREAMS")
-    zulip_allowed_topics = os.getenv("ZULIP_ALLOWED_TOPICS")
-    zulip_allowed_topic_prefixes = os.getenv("ZULIP_ALLOWED_TOPIC_PREFIXES")
-    zulip_require_mention = os.getenv("ZULIP_REQUIRE_MENTION")
-    zulip_free_response_streams = os.getenv("ZULIP_FREE_RESPONSE_STREAMS")
-    zulip_allow_bots = os.getenv("ZULIP_ALLOW_BOTS")
-    zulip_hermes_bot_names = os.getenv("ZULIP_HERMES_BOT_NAMES")
-    zulip_auto_thread_topics = os.getenv("ZULIP_AUTO_THREAD_TOPICS")
-    zulip_config: PlatformConfig | None = None
-    zulip_env_values = [
-        zulip_api_key,
-        zulip_email,
-        zulip_site,
-        zulip_default_stream,
-        zulip_home_topic,
-        zulip_home,
-        zulip_allowed_users,
-        zulip_allowed_streams,
-        zulip_allowed_topics,
-        zulip_allowed_topic_prefixes,
-        zulip_require_mention,
-        zulip_free_response_streams,
-        zulip_allow_bots,
-        zulip_hermes_bot_names,
-        zulip_auto_thread_topics,
-    ]
-    if any(zulip_env_values):
-        if Platform.ZULIP not in config.platforms:
-            config.platforms[Platform.ZULIP] = PlatformConfig(enabled=bool(zulip_api_key))
-        zulip_config = config.platforms[Platform.ZULIP]
-    if zulip_api_key and zulip_config is not None:
-        if not zulip_email:
-            logger.warning("ZULIP_API_KEY set but ZULIP_BOT_EMAIL is missing")
-        if not zulip_site:
-            logger.warning("ZULIP_API_KEY set but ZULIP_SITE_URL is missing")
-        zulip_config.enabled = True
-        zulip_config.token = zulip_api_key
-        zulip_config.extra.update({
-            "site_url": zulip_site or "",
-            "bot_email": zulip_email or "",
-        })
-    if zulip_default_stream and zulip_config is not None:
-        zulip_config.extra["default_stream"] = zulip_default_stream
-    if zulip_home_topic and zulip_config is not None:
-        zulip_config.extra["home_topic"] = zulip_home_topic
-    if zulip_config is not None:
-        zulip_extra_env = {
-            "allowed_users": zulip_allowed_users,
-            "allowed_streams": zulip_allowed_streams,
-            "allowed_topics": zulip_allowed_topics,
-            "allowed_topic_prefixes": zulip_allowed_topic_prefixes,
-            "require_mention": zulip_require_mention,
-            "free_response_streams": zulip_free_response_streams,
-            "allow_bots": zulip_allow_bots,
-            "hermes_bot_names": zulip_hermes_bot_names,
-            "auto_thread_topics": zulip_auto_thread_topics,
-        }
-        for key, value in zulip_extra_env.items():
-            if value is not None:
-                zulip_config.extra[key] = value
-        zulip_home_chat_id = zulip_home or ""
-        if not zulip_home_chat_id and zulip_default_stream and zulip_home_topic:
-            zulip_home_chat_id = zulip_default_stream
-        if zulip_home_topic and zulip_home_chat_id and ":" not in zulip_home_chat_id:
-            zulip_home_chat_id = f"{zulip_home_chat_id}:{zulip_home_topic}"
-        if zulip_home_chat_id:
-            zulip_home_thread_id = os.getenv("ZULIP_HOME_CHANNEL_THREAD_ID") or None
-            parsed_named_home = None
-            try:
-                from gateway.platforms.zulip import _parse_stream_name_topic
-                parsed_named_home = _parse_stream_name_topic(zulip_home_chat_id)
-            except Exception:
-                parsed_named_home = None
-            if parsed_named_home:
-                zulip_home_chat_id, parsed_topic = parsed_named_home
-                zulip_home_thread_id = zulip_home_thread_id or parsed_topic
-            zulip_config.home_channel = HomeChannel(
-                platform=Platform.ZULIP,
-                chat_id=zulip_home_chat_id,
-                name=os.getenv("ZULIP_HOME_CHANNEL_NAME", "Home"),
-                thread_id=zulip_home_thread_id,
-            )
 
     # Session settings
     idle_minutes = getenv("SESSION_IDLE_MINUTES")

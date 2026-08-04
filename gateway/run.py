@@ -6713,7 +6713,6 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             "BLUEBUBBLES_ALLOWED_USERS",
             "QQ_ALLOWED_USERS",
             "YUANBAO_ALLOWED_USERS",
-            "ZULIP_ALLOWED_USERS",
             "GATEWAY_ALLOWED_USERS",
         )
         _builtin_allow_all_vars = (
@@ -6730,7 +6729,6 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             "BLUEBUBBLES_ALLOW_ALL_USERS",
             "QQ_ALLOW_ALL_USERS",
             "YUANBAO_ALLOW_ALL_USERS",
-            "ZULIP_ALLOW_ALL_USERS",
         )
         # Also pick up plugin-registered platforms — each entry can declare
         # its own allowed_users_env / allow_all_env, so the warning stays
@@ -8630,13 +8628,6 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                 logger.warning("Yuanbao: websockets not installed. Run: pip install websockets")
                 return None
             return YuanbaoAdapter(config)
-
-        elif platform == Platform.ZULIP:
-            from gateway.platforms.zulip import ZulipAdapter, check_zulip_requirements
-            if not check_zulip_requirements(config):
-                logger.warning("Zulip: zulip package not installed or ZULIP_BOT_EMAIL/URL/KEY not set")
-                return None
-            return ZulipAdapter(config)
 
         return None
 
@@ -11334,24 +11325,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                 persist_user_timestamp=persist_user_timestamp,
             )
 
-            # Stop persistent typing indicator now that the agent is done. Pass
-            # the same thread metadata used for send_typing so threaded
-            # platforms (notably Zulip stream topics) clear the exact target
-            # they marked as typing.
+            # Stop persistent typing indicator now that the agent is done
             try:
                 _typing_adapter = self._adapter_for_source(source)
                 if _typing_adapter and hasattr(_typing_adapter, "stop_typing"):
-                    _typing_metadata = self._thread_metadata_for_source(
-                        source,
-                        self._reply_anchor_for_event(event),
-                    )
-                    if hasattr(_typing_adapter, "_call_stop_typing"):
-                        await _typing_adapter._call_stop_typing(
-                            source.chat_id,
-                            metadata=_typing_metadata,
-                        )
-                    else:
-                        await _typing_adapter.stop_typing(source.chat_id)
+                    await _typing_adapter.stop_typing(source.chat_id)
             except Exception:
                 pass
 
@@ -11900,17 +11878,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             try:
                 _err_adapter = self._adapter_for_source(source)
                 if _err_adapter and hasattr(_err_adapter, "stop_typing"):
-                    _err_typing_metadata = self._thread_metadata_for_source(
-                        source,
-                        self._reply_anchor_for_event(event),
-                    )
-                    if hasattr(_err_adapter, "_call_stop_typing"):
-                        await _err_adapter._call_stop_typing(
-                            source.chat_id,
-                            metadata=_err_typing_metadata,
-                        )
-                    else:
-                        await _err_adapter.stop_typing(source.chat_id)
+                    await _err_adapter.stop_typing(source.chat_id)
             except Exception:
                 pass
             logger.exception("Agent error in session %s", session_key)
