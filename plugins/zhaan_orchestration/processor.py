@@ -64,3 +64,9 @@ class Processor:
         if not reply:
             raise RuntimeError("Hermes returned an empty email reply")
         self.client.reply(item["inbox_id"], item["message_id"], reply)
+
+    def failure_reply(self, item: dict[str, Any]) -> None:
+        self.client.reply(
+            item["inbox_id"], item["message_id"],
+            "I couldn't process this message after several attempts, so I did not make any changes. Please retry or handle it manually.",
+        )

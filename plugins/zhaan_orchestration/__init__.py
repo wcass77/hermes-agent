@@ -57,7 +57,8 @@ def _start_server() -> None:
         from .agentmail import Client
         from .processor import Processor
         workspace = Path(os.environ.get("ZHAAN_WORKSPACE", "/home/hermes/.hermes/profiles/zhaan/workspace"))
-        _worker = Worker(store, Processor(Client(api_key_file), workspace))
+        processor = Processor(Client(api_key_file), workspace)
+        _worker = Worker(store, processor, failure_notifier=processor.failure_reply)
         threading.Thread(target=_worker.run, name="zhaan-agentmail-worker", daemon=True).start()
     else:
         logger.warning("Zhaan AgentMail API key missing; verified messages will queue without processing")
