@@ -66,6 +66,37 @@ class TestIsUnusableContainerCwd:
         )
 
 
+class TestMountedHostWorkdirMapping:
+    def _config(self):
+        return {
+            "env_type": "docker",
+            "docker_mount_cwd_to_workspace": True,
+            "host_cwd": "/home/hermes/profile/workspace",
+        }
+
+    def test_mount_root_maps_to_workspace(self):
+        assert tt._map_mounted_host_workdir(
+            "/home/hermes/profile/workspace", self._config()
+        ) == "/workspace"
+
+    def test_mount_child_maps_to_workspace_child(self):
+        assert tt._map_mounted_host_workdir(
+            "/home/hermes/profile/workspace/documents", self._config()
+        ) == "/workspace/documents"
+
+    def test_unrelated_host_path_is_not_mapped(self):
+        assert tt._map_mounted_host_workdir(
+            "/home/hermes/other", self._config()
+        ) == "/home/hermes/other"
+
+    def test_mapping_requires_enabled_docker_mount(self):
+        config = self._config()
+        config["docker_mount_cwd_to_workspace"] = False
+        assert tt._map_mounted_host_workdir(
+            "/home/hermes/profile/workspace", config
+        ) == "/home/hermes/profile/workspace"
+
+
 class TestOverrideCwdSanitizedAtCallSite:
     """E2E pin: a per-task cwd OVERRIDE that is a host path must NOT reach the
     container builder. This is the actual reported bug — the gateway/TUI
