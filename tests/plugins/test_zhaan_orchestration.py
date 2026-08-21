@@ -32,6 +32,19 @@ def test_email_child_does_not_inherit_gateway_identity(monkeypatch):
     assert environment["ZHAAN_TEST_VALUE"] == "kept"
 
 
+def test_processor_resolves_host_local_hermes_command(tmp_path, monkeypatch):
+    air_hermes = tmp_path / "bin/hermes"
+    air_hermes.parent.mkdir()
+    air_hermes.write_text("#!/bin/sh\n")
+    air_hermes.chmod(0o700)
+    monkeypatch.delenv("ZHAAN_HERMES_COMMAND", raising=False)
+    monkeypatch.setattr(processor.shutil, "which", lambda command: str(air_hermes))
+
+    service = processor.Processor(object(), tmp_path)
+
+    assert service.hermes_command == str(air_hermes)
+
+
 def test_disabled_by_default_registers_no_tools(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     manager = PluginManager()

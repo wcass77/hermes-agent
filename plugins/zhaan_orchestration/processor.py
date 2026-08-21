@@ -6,6 +6,7 @@ import hashlib
 import mimetypes
 import os
 import re
+import shutil
 import subprocess
 import urllib.request
 from pathlib import Path
@@ -28,10 +29,15 @@ def safe_name(value: str) -> str:
 
 
 class Processor:
-    def __init__(self, client: Client, workspace: Path, hermes_command: str = "/home/hermes/.local/bin/hermes"):
+    def __init__(self, client: Client, workspace: Path, hermes_command: str | None = None):
         self.client = client
         self.workspace = workspace
-        self.hermes_command = hermes_command
+        self.hermes_command = (
+            hermes_command
+            or os.environ.get("ZHAAN_HERMES_COMMAND")
+            or shutil.which("hermes")
+            or str(Path.home() / ".local/bin/hermes")
+        )
 
     def _download_attachments(self, message: dict[str, Any]) -> list[str]:
         destination = self.workspace / "inbox" / "agentmail" / safe_name(str(message["message_id"]))
