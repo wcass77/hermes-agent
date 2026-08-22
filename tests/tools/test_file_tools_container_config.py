@@ -21,6 +21,7 @@ def _make_env_config(**overrides):
         "docker_volumes": [],
         "docker_mount_cwd_to_workspace": True,
         "docker_forward_env": ["MY_SECRET", "API_KEY"],
+        "docker_env": {"STATIC_SETTING": "configured"},
     }
     base.update(overrides)
     return base
@@ -53,6 +54,12 @@ class TestFileToolsContainerConfig:
         """docker_mount_cwd_to_workspace is forwarded to container_config."""
         cc = self._run(_make_env_config(docker_mount_cwd_to_workspace=True), "t1").get("container_config", {})
         assert cc.get("docker_mount_cwd_to_workspace") is True
+
+    def test_docker_env_passed(self):
+        """Literal docker_env values reach file-created containers."""
+        docker_env = {"STATIC_SETTING": "configured"}
+        cc = self._run(_make_env_config(docker_env=docker_env), "t-env").get("container_config", {})
+        assert cc.get("docker_env") == docker_env
 
 
     def test_cwd_only_raw_task_override_reaches_file_environment(self):
