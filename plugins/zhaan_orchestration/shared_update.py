@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
+import yaml
+
 from .store import Store
 
 
@@ -56,6 +58,7 @@ class SharedUpdateService:
         create_thread: Callable | None = None,
         send_message: Callable | None = None,
         session_db_factory: Callable | None = None,
+        participant_ids: Callable[[], set[str]] | None = None,
     ):
         self.store = store
         self.workspace = workspace
@@ -65,6 +68,7 @@ class SharedUpdateService:
         self._create_thread_override = create_thread
         self._send_message_override = send_message
         self._session_db_factory_override = session_db_factory
+        self._participant_ids_override = participant_ids
 
     @contextlib.contextmanager
     def _lock(self):
@@ -116,6 +120,30 @@ class SharedUpdateService:
 
         return SessionDB()
 
+    def _participant_ids(self) -> set[str]:
+        if self._participant_ids_override:
+            return self._participant_ids_override()
+        people = Path(os.environ.get(
+            "ZHAAN_PEOPLE_REGISTRY",
+            "/home/hermes/.hermes/profiles/zhaan/workspace/config/people.yaml",
+        ))
+        data = yaml.safe_load(people.read_text(encoding="utf-8")) or {}
+        return {
+            str(person.get("channels", {}).get("discord_user_id"))
+            for person in data.get("people", [])
+            if person.get("participant")
+            and person.get("channels", {}).get("discord_user_id")
+        }
+
+    def _add_participants(self, token: str, thread_id: str) -> None:
+        participant_ids = self._participant_ids()
+        if not participant_ids:
+            raise RuntimeError("Zhaan has no Discord Participants")
+        for user_id in sorted(participant_ids):
+            self._discord_request(
+                "PUT", f"/channels/{thread_id}/thread-members/{user_id}", token,
+            )
+
     def _valid_thread(self, token: str, thread_id: str, name: str) -> bool:
         try:
             thread = self._discord_request("GET", f"/channels/{thread_id}", token)
@@ -166,6 +194,7 @@ class SharedUpdateService:
             if not created.get("success") or not created.get("thread_id"):
                 raise RuntimeError(created.get("error") or "Discord did not create the daily thread")
             thread_id = str(created["thread_id"])
+        self._add_participants(token, thread_id)
         session_id = f"zhaan-daily-{plan_date}"
         self.store.save_daily_thread(plan_date, self.channel_id, thread_id, session_id)
         return thread_id, session_id

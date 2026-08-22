@@ -291,10 +291,14 @@ def test_shared_update_creates_one_daily_thread_and_mirrors(tmp_path):
     requests = []
     created = []
     sent = []
+    events = []
     db = FakeSessionDB()
 
     def request(method, path, _token, **kwargs):
         requests.append((method, path, kwargs))
+        if method == "PUT" and path.startswith("/channels/456/thread-members/"):
+            events.append(path)
+            return None
         if path == "/channels/123":
             return {"guild_id": "guild"}
         if path == "/guilds/guild/threads/active":
@@ -307,15 +311,18 @@ def test_shared_update_creates_one_daily_thread_and_mirrors(tmp_path):
 
     def create(_token, channel_id, name):
         created.append((channel_id, name))
+        events.append("create")
         return {"success": True, "thread_id": "456", "name": name}
 
     def send(target, message):
         sent.append((target, message))
+        events.append("send")
         return {"success": True, "message_id": "789"}
 
     service = shared_update.SharedUpdateService(
         store, tmp_path, channel_id="123", discord_request=request,
         create_thread=create, send_message=send, session_db_factory=lambda: db,
+        participant_ids=lambda: {"42", "7"},
     )
     instant = dt.datetime(2026, 8, 4, 16, tzinfo=dt.timezone.utc)
     first = service.post("School closes at 2 PM.", now=instant)
@@ -324,6 +331,12 @@ def test_shared_update_creates_one_daily_thread_and_mirrors(tmp_path):
     assert first["success"] and first["context_mirrored"]
     assert second["success"] and second["context_mirrored"]
     assert created == [("123", "Tuesday, August 4, 2026")]
+    assert events[:4] == [
+        "create",
+        "/channels/456/thread-members/42",
+        "/channels/456/thread-members/7",
+        "send",
+    ]
     assert sent == [
         ("discord:456:456", "School closes at 2 PM."),
         ("discord:456:456", "Pickup is at the west door."),
@@ -349,6 +362,7 @@ def test_shared_update_reports_visible_but_unmirrored_partial_failure(tmp_path):
         store, tmp_path, channel_id="123", discord_request=request,
         send_message=lambda *_: {"success": True, "message_id": "789"},
         session_db_factory=lambda: db,
+        participant_ids=lambda: {"42"},
     )
     result = service.post(
         "Update", now=dt.datetime(2026, 8, 4, 16, tzinfo=dt.timezone.utc)
@@ -357,3 +371,31 @@ def test_shared_update_reports_visible_but_unmirrored_partial_failure(tmp_path):
     assert result["discord_sent"]
     assert not result["context_mirrored"]
     assert result["message_id"] == "789"
+
+
+def test_shared_update_does_not_post_when_participant_add_fails(tmp_path):
+    store = store_mod.Store(tmp_path / "orchestration.sqlite")
+    sent = []
+
+    def request(method, path, _token, **_kwargs):
+        if path == "/channels/123":
+            return {"guild_id": "guild"}
+        if path == "/guilds/guild/threads/active":
+            return {"threads": []}
+        if path == "/channels/123/threads/archived/public":
+            return {"threads": []}
+        if method == "PUT" and path == "/channels/456/thread-members/42":
+            raise RuntimeError("missing permission")
+        raise AssertionError((method, path))
+
+    service = shared_update.SharedUpdateService(
+        store, tmp_path, channel_id="123", discord_request=request,
+        create_thread=lambda *_: {"success": True, "thread_id": "456"},
+        send_message=lambda *args: sent.append(args),
+        participant_ids=lambda: {"42"},
+    )
+
+    with pytest.raises(RuntimeError, match="missing permission"):
+        service.post("Daily Brief", now=dt.datetime(2026, 8, 4, 16, tzinfo=dt.timezone.utc))
+    assert sent == []
+    assert store.daily_thread("2026-08-04") is None
