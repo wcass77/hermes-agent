@@ -47,6 +47,18 @@ def _configure_discord_participant_allowlist() -> None:
     os.environ["DISCORD_ALLOWED_USERS"] = ",".join(sorted(participant_ids))
 
 
+def _coordination_channel_id() -> str:
+    configured = os.environ.get("ZHAAN_DISCORD_COORDINATION_CHANNEL_ID", "").strip()
+    if configured:
+        return configured
+    from hermes_cli.config import load_config
+
+    config = load_config() or {}
+    plugins = config.get("plugins") or {}
+    entry = (plugins.get("entries") or {}).get("zhaan_orchestration") or {}
+    return str(entry.get("coordination_channel_id") or "").strip()
+
+
 def pre_gateway_dispatch(event, **_kwargs):
     source = event.source
     if getattr(source.platform, "value", source.platform) != "discord":
@@ -54,6 +66,11 @@ def pre_gateway_dispatch(event, **_kwargs):
     people = Path(os.environ.get("ZHAAN_PEOPLE_REGISTRY", "/home/hermes/.hermes/profiles/zhaan/workspace/config/people.yaml"))
     if str(source.user_id or "") not in _participant_discord_ids(people):
         return {"action": "skip", "reason": "unknown-discord-participant"}
+    if (
+        str(getattr(source, "chat_type", "") or "") != "group"
+        or str(getattr(source, "chat_id", "") or "") != _coordination_channel_id()
+    ):
+        return {"action": "skip", "reason": "discord-main-channel-only"}
     return {"action": "allow"}
 
 
@@ -90,7 +107,7 @@ def register(ctx) -> None:
     ctx.register_tool(
         name="post_shared_update", toolset="zhaan",
         schema=POST_SHARED_UPDATE_SCHEMA, handler=post_shared_update_tool,
-        description="Post and persist a concise update in today's family Discord thread.",
+        description="Post and persist a concise update in the family Discord main channel.",
         emoji="📣",
     )
     ctx.register_tool(

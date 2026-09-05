@@ -5,7 +5,7 @@ import json
 import sqlite3
 import uuid
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any
 
 
 SCHEMA = """
@@ -19,18 +19,6 @@ CREATE TABLE IF NOT EXISTS ingress_events (
 );
 CREATE TABLE IF NOT EXISTS email_sessions (
   thread_id TEXT PRIMARY KEY, session_id TEXT NOT NULL UNIQUE,
-  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS reminder_sessions (
-  participant_id TEXT NOT NULL, plan_date TEXT NOT NULL,
-  session_id TEXT NOT NULL UNIQUE, main_session_id TEXT NOT NULL,
-  synced_message_count INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-  PRIMARY KEY(participant_id, plan_date)
-);
-CREATE TABLE IF NOT EXISTS daily_threads (
-  plan_date TEXT PRIMARY KEY, channel_id TEXT NOT NULL,
-  thread_id TEXT NOT NULL UNIQUE, session_id TEXT NOT NULL UNIQUE,
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
 """
@@ -83,80 +71,6 @@ class Store:
             db.execute("INSERT INTO email_sessions VALUES(?, ?, ?, ?)", (thread_id, session_id, now, now))
             db.commit()
             return session_id
-
-    def reminder_session(self, participant_id: str, plan_date: str, main_session_id: str) -> str:
-        now = utcnow()
-        with self.connect() as db:
-            db.execute("BEGIN IMMEDIATE")
-            row = db.execute(
-                "SELECT session_id FROM reminder_sessions WHERE participant_id=? AND plan_date=?",
-                (participant_id, plan_date),
-            ).fetchone()
-            if row:
-                db.commit()
-                return row[0]
-            session_id = f"zhaan-reminder-{uuid.uuid4()}"
-            db.execute(
-                "INSERT INTO reminder_sessions VALUES(?, ?, ?, ?, 0, ?, ?)",
-                (participant_id, plan_date, session_id, main_session_id, now, now),
-            )
-            db.commit()
-            return session_id
-
-    def daily_thread(self, plan_date: str) -> dict[str, str] | None:
-        with self.connect() as db:
-            db.row_factory = sqlite3.Row
-            row = db.execute(
-                "SELECT * FROM daily_threads WHERE plan_date=?", (plan_date,)
-            ).fetchone()
-        return dict(row) if row else None
-
-    def save_daily_thread(
-        self, plan_date: str, channel_id: str, thread_id: str, session_id: str
-    ) -> None:
-        now = utcnow()
-        with self.connect() as db:
-            db.execute(
-                """INSERT INTO daily_threads
-                   (plan_date,channel_id,thread_id,session_id,created_at,updated_at)
-                   VALUES(?,?,?,?,?,?)
-                   ON CONFLICT(plan_date) DO UPDATE SET
-                     channel_id=excluded.channel_id,
-                     thread_id=excluded.thread_id,
-                     session_id=excluded.session_id,
-                     updated_at=excluded.updated_at""",
-                (plan_date, channel_id, thread_id, session_id, now, now),
-            )
-
-    def sync_reminder_context(
-        self,
-        participant_id: str,
-        plan_date: str,
-        main_messages: list[dict[str, Any]],
-        append: Callable[[str, dict[str, Any]], None],
-    ) -> int:
-        with self.connect() as db:
-            db.execute("BEGIN IMMEDIATE")
-            row = db.execute(
-                "SELECT session_id, synced_message_count FROM reminder_sessions WHERE participant_id=? AND plan_date=?",
-                (participant_id, plan_date),
-            ).fetchone()
-            if not row:
-                db.rollback()
-                raise KeyError((participant_id, plan_date))
-            session_id, offset = row
-            delta = main_messages[offset:]
-            for message in delta:
-                copy = dict(message)
-                copy["context_only"] = True
-                copy["metadata"] = {**copy.get("metadata", {}), "zhaan_context_copy": True}
-                append(session_id, copy)
-            db.execute(
-                "UPDATE reminder_sessions SET synced_message_count=?, updated_at=? WHERE participant_id=? AND plan_date=?",
-                (len(main_messages), utcnow(), participant_id, plan_date),
-            )
-            db.commit()
-            return len(delta)
 
     def counts(self) -> dict[str, int]:
         with self.connect() as db:

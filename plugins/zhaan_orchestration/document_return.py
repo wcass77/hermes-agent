@@ -13,7 +13,7 @@ import requests
 
 RETURN_ARCHIVED_DOCUMENT_SCHEMA = {
     "name": "return_archived_document",
-    "description": "Return an archived family document through the current Discord or AgentMail conversation. Prefer this for document retrieval; provide only its catalog document ID.",
+    "description": "Return an archived family document through AgentMail or the Family Assistant Discord main channel. Prefer this for document retrieval; provide only its catalog document ID.",
     "parameters": {
         "type": "object", "additionalProperties": False,
         "properties": {"document_id": {"type": "string", "pattern": "^doc-[a-z0-9-]+$"}},
@@ -63,12 +63,8 @@ def return_archived_document_tool(args: dict[str, Any], *, session_id: str = "",
         session = db.get_session(session_id)
         if not session or str(session.get("source") or "") != "discord":
             raise ValueError("document return is supported only in the current Discord or AgentMail conversation")
-        chat_id = str(session.get("chat_id") or "")
-        thread_id = str(session.get("thread_id") or "")
-        if not chat_id:
-            raise ValueError("current Discord destination is unavailable")
-        destination = thread_id or chat_id
-        from .shared_update import SharedUpdateService
+        from .shared_update import SharedUpdateService, configured_service
+        destination = configured_service().channel_id
         try:
             token = SharedUpdateService._token()
         except RuntimeError:

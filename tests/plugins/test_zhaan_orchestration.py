@@ -76,16 +76,9 @@ def test_signature_timestamp_and_replay_queue(tmp_path):
     assert store.counts() == {"queued": 1}
 
 
-def test_stable_sessions_and_context_only_delta(tmp_path):
+def test_stable_email_sessions(tmp_path):
     store = store_mod.Store(tmp_path / "state.sqlite")
     assert store.session_for_email_thread("a") == store.session_for_email_thread("a")
-    session = store.reminder_session("willy", "2026-08-04", "main")
-    assert session == store.reminder_session("willy", "2026-08-04", "main")
-    appended = []
-    messages = [{"role": "user", "content": "one"}, {"role": "assistant", "content": "two"}]
-    assert store.sync_reminder_context("willy", "2026-08-04", messages, lambda sid, msg: appended.append((sid, msg))) == 2
-    assert all(item[1]["context_only"] for item in appended)
-    assert store.sync_reminder_context("willy", "2026-08-04", messages, lambda *_: None) == 0
 
 
 def test_queue_claim_retry_recovery_and_completion(tmp_path):
@@ -108,11 +101,20 @@ def test_discord_unknown_user_is_dropped(tmp_path, monkeypatch):
     people = tmp_path / "people.yaml"
     people.write_text(yaml.safe_dump({"people": [{"id": "willy", "participant": True, "channels": {"discord_user_id": "42"}}]}))
     monkeypatch.setenv("ZHAAN_PEOPLE_REGISTRY", str(people))
-    source = type("Source", (), {"platform": "discord", "user_id": "99"})()
+    monkeypatch.setenv("ZHAAN_DISCORD_COORDINATION_CHANNEL_ID", "main")
+    source = type("Source", (), {
+        "platform": "discord", "user_id": "99", "chat_type": "group",
+        "chat_id": "main",
+    })()
     event = type("Event", (), {"source": source})()
     assert plugin.pre_gateway_dispatch(event)["action"] == "skip"
     source.user_id = "42"
     assert plugin.pre_gateway_dispatch(event)["action"] == "allow"
+    source.chat_type = "thread"
+    source.chat_id = "old-thread"
+    assert plugin.pre_gateway_dispatch(event) == {
+        "action": "skip", "reason": "discord-main-channel-only",
+    }
 
 
 def test_register_derives_core_discord_allowlist_from_people(tmp_path, monkeypatch):
@@ -228,7 +230,7 @@ def test_document_return_prepares_agentmail_manifest(tmp_path, monkeypatch):
     }
 
 
-def test_document_return_uploads_to_current_discord_thread(tmp_path, monkeypatch):
+def test_document_return_uploads_to_discord_main_channel(tmp_path, monkeypatch):
     cataloged_document(tmp_path)
     monkeypatch.setenv("ZHAAN_WORKSPACE", str(tmp_path))
     monkeypatch.delenv("ZHAAN_AGENTMAIL_ATTACHMENT_MANIFEST", raising=False)
@@ -239,6 +241,11 @@ def test_document_return_uploads_to_current_discord_thread(tmp_path, monkeypatch
     })())
     from plugins.zhaan_orchestration.shared_update import SharedUpdateService
     monkeypatch.setattr(SharedUpdateService, "_token", staticmethod(lambda: "token"))
+    monkeypatch.setattr(
+        shared_update,
+        "configured_service",
+        lambda: type("Service", (), {"channel_id": "main-channel"})(),
+    )
     captured = {}
     response = type("Response", (), {
         "status_code": 200, "json": lambda self: {"id": "message"},
@@ -251,7 +258,7 @@ def test_document_return_uploads_to_current_discord_thread(tmp_path, monkeypatch
         {"document_id": "doc-20260804-photo"}, session_id="discord-session",
     ))
     assert result["success"] and result["message_id"] == "message"
-    assert captured["url"].endswith("/channels/thread/messages")
+    assert captured["url"].endswith("/channels/main-channel/messages")
     assert captured["headers"] == {"Authorization": "Bot token"}
     assert captured["files"]["files[0]"][0] == "Image.jpeg"
 
@@ -279,10 +286,29 @@ class FakeSessionDB:
         self.sessions = []
         self.peers = []
         self.messages = []
+        self.current = None
+        self.promoted = []
         self.fail_append = fail_append
 
     def create_session(self, session_id, source, **kwargs):
         self.sessions.append((session_id, source, kwargs))
+        week_start = dt.date.fromisoformat(session_id.removeprefix("zhaan-week-"))
+        self.current = {
+            "id": session_id,
+            "started_at": dt.datetime(
+                week_start.year, week_start.month, week_start.day, 21, 30,
+                tzinfo=dt.timezone.utc,
+            ).timestamp(),
+        }
+
+    def find_latest_gateway_session_for_peer(self, **_kwargs):
+        return self.current
+
+    def promote_to_session_reset(self, session_id, reason):
+        self.promoted.append((session_id, reason))
+        if self.current and self.current["id"] == session_id:
+            self.current = None
+        return True
 
     def reopen_session(self, _session_id):
         return None
@@ -299,36 +325,18 @@ class FakeSessionDB:
         return None
 
 
-def test_shared_update_creates_one_daily_thread_and_mirrors(tmp_path):
+def test_shared_update_uses_one_main_channel_weekly_session_and_mirrors(tmp_path):
     store = store_mod.Store(tmp_path / "orchestration.sqlite")
-    requests = []
-    created = []
     sent = []
     db = FakeSessionDB()
-
-    def request(method, path, _token, **kwargs):
-        requests.append((method, path, kwargs))
-        if path == "/channels/123":
-            return {"guild_id": "guild"}
-        if path == "/guilds/guild/threads/active":
-            return {"threads": []}
-        if path == "/channels/123/threads/archived/public":
-            return {"threads": []}
-        if path == "/channels/456":
-            return {"id": "456", "parent_id": "123", "name": "Tuesday, August 4, 2026"}
-        raise AssertionError((method, path))
-
-    def create(_token, channel_id, name):
-        created.append((channel_id, name))
-        return {"success": True, "thread_id": "456", "name": name}
 
     def send(target, message):
         sent.append((target, message))
         return {"success": True, "message_id": "789"}
 
     service = shared_update.SharedUpdateService(
-        store, tmp_path, channel_id="123", discord_request=request,
-        create_thread=create, send_message=send, session_db_factory=lambda: db,
+        store, tmp_path, channel_id="123", send_message=send,
+        session_db_factory=lambda: db,
     )
     instant = dt.datetime(2026, 8, 4, 16, tzinfo=dt.timezone.utc)
     first = service.post("School closes at 2 PM.", now=instant)
@@ -336,30 +344,46 @@ def test_shared_update_creates_one_daily_thread_and_mirrors(tmp_path):
 
     assert first["success"] and first["context_mirrored"]
     assert second["success"] and second["context_mirrored"]
-    assert created == [("123", "Tuesday, August 4, 2026")]
     assert sent == [
-        ("discord:456:456", "School closes at 2 PM."),
-        ("discord:456:456", "Pickup is at the west door."),
+        ("discord:123", "School closes at 2 PM."),
+        ("discord:123", "Pickup is at the west door."),
     ]
     assert [item["content"] for item in db.messages] == [
         "School closes at 2 PM.", "Pickup is at the west door.",
     ]
-    assert store.daily_thread("2026-08-04")["session_id"] == "zhaan-daily-2026-08-04"
+    assert [item[0] for item in db.sessions] == ["zhaan-week-2026-08-02"]
+    assert first["week_start"] == "2026-08-02"
+    assert first["channel_id"] == "123"
+
+
+def test_shared_update_rotates_at_sunday_evening_review_boundary(tmp_path):
+    store = store_mod.Store(tmp_path / "orchestration.sqlite")
+    db = FakeSessionDB()
+    service = shared_update.SharedUpdateService(
+        store, tmp_path, channel_id="123",
+        send_message=lambda *_: {"success": True, "message_id": "789"},
+        session_db_factory=lambda: db,
+    )
+    eastern = shared_update.ZoneInfo("America/New_York")
+
+    before = service.post(
+        "Before", now=dt.datetime(2026, 8, 9, 17, 29, tzinfo=eastern)
+    )
+    after = service.post(
+        "Review", now=dt.datetime(2026, 8, 9, 17, 30, tzinfo=eastern)
+    )
+
+    assert before["session_id"] == "zhaan-week-2026-08-02"
+    assert after["session_id"] == "zhaan-week-2026-08-09"
+    assert db.promoted == [("zhaan-week-2026-08-02", "weekly_reset")]
 
 
 def test_shared_update_reports_visible_but_unmirrored_partial_failure(tmp_path):
     store = store_mod.Store(tmp_path / "orchestration.sqlite")
     db = FakeSessionDB(fail_append=True)
 
-    def request(_method, path, _token, **_kwargs):
-        if path == "/channels/456":
-            return {"id": "456", "parent_id": "123", "name": "Tuesday, August 4, 2026"}
-        if path == "/channels/123":
-            return {"guild_id": "guild"}
-        return {"threads": [{"id": "456", "parent_id": "123", "name": "Tuesday, August 4, 2026"}]}
-
     service = shared_update.SharedUpdateService(
-        store, tmp_path, channel_id="123", discord_request=request,
+        store, tmp_path, channel_id="123",
         send_message=lambda *_: {"success": True, "message_id": "789"},
         session_db_factory=lambda: db,
     )
