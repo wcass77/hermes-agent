@@ -43,6 +43,30 @@ class TestSaveDisabledSkills:
 
 class TestIsSkillDisabled:
 
+    @patch("hermes_cli.config.load_config")
+    def test_allowlist_blocks_unlisted_skill(self, mock_load):
+        mock_load.return_value = {"skills": {"allowed": ["approved-skill"]}}
+        from tools.skills_tool import _is_skill_disabled
+        assert _is_skill_disabled("approved-skill") is False
+        assert _is_skill_disabled("new-upstream-skill") is True
+
+
+class TestAllowedSkillNames:
+    def test_missing_allowlist_preserves_opt_out_behavior(self, tmp_path, monkeypatch):
+        (tmp_path / "config.yaml").write_text("skills:\n  disabled: []\n")
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        from agent.skill_utils import _raw_config_cache_clear, get_allowed_skill_names
+        _raw_config_cache_clear()
+        assert get_allowed_skill_names() is None
+
+    def test_explicit_empty_allowlist_disables_every_skill(self, tmp_path, monkeypatch):
+        (tmp_path / "config.yaml").write_text("skills:\n  allowed: []\n")
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        from agent.skill_utils import _raw_config_cache_clear, get_allowed_skill_names, is_skill_enabled
+        _raw_config_cache_clear()
+        assert get_allowed_skill_names() == set()
+        assert is_skill_enabled("anything") is False
+
 
     @patch("hermes_cli.config.load_config")
     def test_platform_disabled(self, mock_load):

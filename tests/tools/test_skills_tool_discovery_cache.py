@@ -26,6 +26,7 @@ def _fresh_cache(monkeypatch, tmp_path):
         "agent.skill_utils.get_external_skills_dirs", lambda: []
     )
     monkeypatch.setattr(st, "_get_disabled_skill_names", lambda: set())
+    monkeypatch.setattr(st, "_get_allowed_skill_names", lambda: None)
     yield
     st._SKILLS_CACHE.clear()
 
@@ -66,3 +67,15 @@ def test_disabled_and_full_views_cached_separately(tmp_path, monkeypatch):
     everything = sorted(s["name"] for s in st._find_all_skills(skip_disabled=True))
     assert filtered == ["skill-one"]
     assert everything == ["skill-one", "skill-two"]
+
+
+def test_allowlist_is_fail_closed_for_newly_installed_skill(tmp_path, monkeypatch):
+    _write_skill(tmp_path, "cat-a", "approved-skill")
+    _write_skill(tmp_path, "cat-a", "new-upstream-skill")
+    monkeypatch.setattr(st, "_get_allowed_skill_names", lambda: {"approved-skill"})
+
+    visible = sorted(s["name"] for s in st._find_all_skills())
+    everything = sorted(s["name"] for s in st._find_all_skills(skip_disabled=True))
+
+    assert visible == ["approved-skill"]
+    assert everything == ["approved-skill", "new-upstream-skill"]

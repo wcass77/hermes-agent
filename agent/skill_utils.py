@@ -455,6 +455,36 @@ def get_disabled_skill_names(platform: str | None = None) -> Set[str]:
     return global_disabled
 
 
+def get_allowed_skill_names() -> Optional[Set[str]]:
+    """Return the configured fail-closed skill allowlist, or ``None``.
+
+    ``skills.allowed`` is intentionally opt-in for backward compatibility.
+    When the key is absent (or YAML ``null``), every skill not otherwise
+    disabled remains eligible.  When present, including as an empty list,
+    only the named skills may be discovered or loaded.  This keeps newly
+    bundled skills from becoming active implicitly after an upgrade.
+    """
+    parsed = _load_raw_config()
+    skills_cfg = parsed.get("skills") if parsed else None
+    if not isinstance(skills_cfg, dict) or "allowed" not in skills_cfg:
+        return None
+    raw_allowed = skills_cfg.get("allowed")
+    if raw_allowed is None:
+        return None
+    return _normalize_string_set(raw_allowed)
+
+
+def is_skill_enabled(name: str, platform: str | None = None) -> bool:
+    """Return whether *name* passes both allowlist and deny-list policy."""
+    normalized = str(name or "").strip()
+    if not normalized:
+        return False
+    allowed = get_allowed_skill_names()
+    if allowed is not None and normalized not in allowed:
+        return False
+    return normalized not in get_disabled_skill_names(platform=platform)
+
+
 def _normalize_string_set(values) -> Set[str]:
     if values is None:
         return set()
@@ -753,7 +783,6 @@ def discover_all_skill_config_vars() -> List[Dict[str, Any]]:
     all_vars: List[Dict[str, Any]] = []
     seen_keys: set = set()
 
-    disabled = get_disabled_skill_names()
     for skills_dir in get_all_skills_dirs():
         if not skills_dir.is_dir():
             continue
@@ -765,7 +794,7 @@ def discover_all_skill_config_vars() -> List[Dict[str, Any]]:
                 continue
 
             skill_name = frontmatter.get("name") or skill_file.parent.name
-            if str(skill_name) in disabled:
+            if not is_skill_enabled(str(skill_name)):
                 continue
             if not skill_matches_platform(frontmatter):
                 continue

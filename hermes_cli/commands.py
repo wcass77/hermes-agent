@@ -911,8 +911,7 @@ def _collect_gateway_skill_entries(
     # --- Tier 2: Built-in skill commands (trimmed at cap) -----------------
     _platform_disabled: set[str] = set()
     try:
-        from agent.skill_utils import get_disabled_skill_names
-        _platform_disabled = get_disabled_skill_names(platform=platform)
+        from agent.skill_utils import is_skill_enabled as _skill_enabled
     except Exception:
         pass
 
@@ -944,7 +943,7 @@ def _collect_gateway_skill_entries(
             if skill_path.startswith(_hub_dir):
                 continue
             skill_name = info.get("name", "")
-            if skill_name in _platform_disabled:
+            if not _skill_enabled(skill_name, platform=platform):
                 continue
             raw_name = cmd_key.lstrip("/")
             name = sanitize_name(raw_name) if sanitize_name else raw_name
@@ -1082,8 +1081,7 @@ def discord_skill_commands_by_category(
 
     _platform_disabled: set[str] = set()
     try:
-        from agent.skill_utils import get_disabled_skill_names
-        _platform_disabled = get_disabled_skill_names(platform="discord")
+        from agent.skill_utils import is_skill_enabled as _skill_enabled
     except Exception:
         pass
 
@@ -1143,7 +1141,7 @@ def discord_skill_commands_by_category(
                 continue
 
             skill_name = info.get("name", "")
-            if skill_name in _platform_disabled:
+            if not _skill_enabled(skill_name, platform="discord"):
                 continue
 
             raw_name = cmd_key.lstrip("/")

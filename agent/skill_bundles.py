@@ -286,10 +286,9 @@ def build_bundle_invocation_message(
     from agent.skill_commands import _load_skill_payload, _build_skill_message
 
     try:
-        from agent.skill_utils import get_disabled_skill_names
-        disabled_names = get_disabled_skill_names(platform=platform)
+        from agent.skill_utils import is_skill_enabled
     except Exception:
-        disabled_names = set()
+        is_skill_enabled = lambda name, platform=None: True
 
     loaded_names: List[str] = []
     missing: List[str] = []
@@ -315,7 +314,7 @@ def build_bundle_invocation_message(
 
         # Per-platform / global disabled gate. Checked against the loaded
         # skill's canonical name (identifiers may be paths or aliases).
-        if skill_name in disabled_names or identifier in disabled_names:
+        if not is_skill_enabled(skill_name, platform=platform):
             disabled.append(skill_name or identifier)
             continue
 

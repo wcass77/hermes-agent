@@ -2954,7 +2954,7 @@ def _check_unavailable_skill(command_name: str) -> str | None:
     # Normalize: command uses hyphens, skill names may use hyphens or underscores
     normalized = command_name.lower().replace("_", "-")
     try:
-        from tools.skills_tool import _get_disabled_skill_names
+        from tools.skills_tool import _get_disabled_skill_names, _is_skill_disabled
         from agent.skill_utils import get_all_skills_dirs, is_excluded_skill_path
         disabled = _get_disabled_skill_names()
 
@@ -2970,7 +2970,9 @@ def _check_unavailable_skill(command_name: str) -> str | None:
                     continue
                 # disabled is keyed by the declared frontmatter name (what
                 # skills.disabled / skills.platform_disabled store).
-                if slug == normalized and declared_name in disabled:
+                if slug == normalized and (
+                    declared_name in disabled or _is_skill_disabled(declared_name)
+                ):
                     return (
                         f"The **{command_name}** skill is installed but disabled.\n"
                         f"Enable it with: `hermes skills config`"
@@ -15410,8 +15412,8 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                     _skill_name = skill_cmds[cmd_key].get("name", "")
                     _plat = source.platform.value if source.platform else None
                     if _plat and _skill_name:
-                        from agent.skill_utils import get_disabled_skill_names as _get_plat_disabled
-                        if _skill_name in _get_plat_disabled(platform=_plat):
+                        from agent.skill_utils import is_skill_enabled as _skill_enabled
+                        if not _skill_enabled(_skill_name, platform=_plat):
                             return (
                                 f"The **{_skill_name}** skill is disabled for {_plat}.\n"
                                 f"Enable it with: `hermes skills config`"
@@ -15439,12 +15441,13 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                         # leading one above) against the same disabled list,
                         # or a skill an operator disabled for this platform
                         # still gets its full content loaded via the stack.
-                        from agent.skill_utils import get_disabled_skill_names as _get_plat_disabled
-                        _plat_disabled = _get_plat_disabled(platform=_plat)
+                        from agent.skill_utils import is_skill_enabled as _skill_enabled
                         _disabled_extra = [
                             skill_cmds.get(k, {}).get("name", "")
                             for k in extra_keys
-                            if skill_cmds.get(k, {}).get("name", "") in _plat_disabled
+                            if not _skill_enabled(
+                                skill_cmds.get(k, {}).get("name", ""), platform=_plat
+                            )
                         ]
                         if _disabled_extra:
                             return (

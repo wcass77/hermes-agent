@@ -1789,6 +1789,11 @@ DEFAULT_CONFIG = {
     # always goes to ~/.hermes/skills/.
     "skills": {
         "external_dirs": [],   # e.g. ["~/.agents/skills", "/shared/team-skills"]
+        # Optional fail-closed allowlist. When set to a list, only those exact
+        # skill names can be discovered or loaded; newly bundled skills stay
+        # inactive after upgrades until explicitly added. None preserves the
+        # default opt-out behavior for existing profiles.
+        "allowed": None,
         # Substitute ${HERMES_SKILL_DIR} and ${HERMES_SESSION_ID} in SKILL.md
         # content with the absolute skill directory and the active session id
         # before the agent sees it.  Lets skill authors reference bundled

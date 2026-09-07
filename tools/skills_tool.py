@@ -627,6 +627,12 @@ def _get_disabled_skill_names() -> Set[str]:
     return get_disabled_skill_names()
 
 
+def _get_allowed_skill_names() -> Optional[Set[str]]:
+    """Load the optional fail-closed skill allowlist from config."""
+    from agent.skill_utils import get_allowed_skill_names
+    return get_allowed_skill_names()
+
+
 def _get_session_platform() -> str:
     """Resolve the current platform from gateway session context.
 
@@ -654,13 +660,13 @@ def _is_skill_disabled(name: str, platform: str = None) -> bool:
         config = load_config()
         skills_cfg = config.get("skills", {})
         resolved_platform = platform or os.getenv("HERMES_PLATFORM") or _get_session_platform()
+        allowed = skills_cfg.get("allowed") if isinstance(skills_cfg, dict) else None
+        if allowed is not None and name not in allowed:
+            return True
         global_disabled = skills_cfg.get("disabled", [])
         if resolved_platform:
             platform_disabled = cfg_get(skills_cfg, "platform_disabled", resolved_platform)
             if platform_disabled is not None:
-                # A globally-disabled skill stays disabled on every platform;
-                # the platform list adds to it rather than replacing it. Keep
-                # in sync with agent.skill_utils.get_disabled_skill_names.
                 return name in platform_disabled or name in global_disabled
         return name in global_disabled
     except Exception:
@@ -689,6 +695,7 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
     # Load disabled set once (not per-skill). Part of the cache signature:
     # disabling a skill is a config change with no filesystem mtime bump.
     disabled = set() if skip_disabled else _get_disabled_skill_names()
+    allowed = None if skip_disabled else _get_allowed_skill_names()
 
     # Collect directories to scan — same resolution as the scan loop below
     # (_skills_dir() resolves the LIVE profile HERMES_HOME; the module-level
@@ -699,7 +706,10 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
         dirs_to_scan.append(active_skills_dir)
     dirs_to_scan.extend(get_external_skills_dirs())
 
-    signature = _skills_scan_signature(dirs_to_scan, disabled)
+    signature = _skills_scan_signature(
+        dirs_to_scan,
+        disabled | ({f"__allowed__:{name}" for name in allowed} if allowed is not None else set()),
+    )
     now = time.monotonic()
 
     cached = _SKILLS_CACHE.get(cache_key)
@@ -738,7 +748,7 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
                 name = frontmatter.get("name", skill_dir.name)[:MAX_NAME_LENGTH]
                 if name in seen_names:
                     continue
-                if name in disabled:
+                if name in disabled or (allowed is not None and name not in allowed):
                     continue
 
                 description = frontmatter.get("description", "")

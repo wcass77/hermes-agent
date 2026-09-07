@@ -381,10 +381,18 @@ def scan_skill_commands() -> Dict[str, Dict[str, Any]]:
     _skill_commands_platform = _resolve_skill_commands_platform()
     _skill_commands = {}
     try:
-        from tools.skills_tool import SKILLS_DIR, _parse_frontmatter, skill_matches_platform, skill_matches_environment, _get_disabled_skill_names
+        from tools.skills_tool import (
+            SKILLS_DIR,
+            _get_allowed_skill_names,
+            _get_disabled_skill_names,
+            _parse_frontmatter,
+            skill_matches_environment,
+            skill_matches_platform,
+        )
         from agent.skill_utils import get_external_skills_dirs, iter_skill_index_files
         from hermes_cli.commands import resolve_command
         disabled = _get_disabled_skill_names()
+        allowed = _get_allowed_skill_names()
         seen_names: set = set()
 
         # Scan local dir first, then external dirs
@@ -411,7 +419,7 @@ def scan_skill_commands() -> Dict[str, Dict[str, Any]]:
                     if name in seen_names:
                         continue
                     # Respect user's disabled skills config
-                    if name in disabled:
+                    if name in disabled or (allowed is not None and name not in allowed):
                         continue
                     description = frontmatter.get('description', '')
                     if not description:
@@ -764,8 +772,7 @@ def build_preloaded_skills_prompt(
     missing: list[str] = []
 
     try:
-        from agent.skill_utils import get_disabled_skill_names
-        disabled_names = get_disabled_skill_names()
+        from agent.skill_utils import is_skill_enabled
     except Exception:
         disabled_names = set()
 
@@ -783,7 +790,7 @@ def build_preloaded_skills_prompt(
 
         loaded_skill, skill_dir, skill_name = loaded
 
-        if skill_name in disabled_names or identifier in disabled_names:
+        if not is_skill_enabled(skill_name):
             missing.append(identifier)
             continue
 
