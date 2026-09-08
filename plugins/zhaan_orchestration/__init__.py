@@ -59,6 +59,14 @@ def _coordination_channel_id() -> str:
     return str(entry.get("coordination_channel_id") or "").strip()
 
 
+def _plugin_entry() -> dict:
+    from hermes_cli.config import load_config
+
+    config = load_config() or {}
+    plugins = config.get("plugins") or {}
+    return (plugins.get("entries") or {}).get("zhaan_orchestration") or {}
+
+
 def pre_gateway_dispatch(event, **_kwargs):
     source = event.source
     if getattr(source.platform, "value", source.platform) != "discord":
@@ -94,7 +102,11 @@ def _start_server() -> None:
         from .agentmail import Client
         from .processor import Processor
         workspace = Path(os.environ.get("ZHAAN_WORKSPACE", "/home/hermes/.hermes/profiles/zhaan/workspace"))
-        processor = Processor(Client(api_key_file), workspace)
+        repository_url = str(
+            _plugin_entry().get("email_rule_repository_url")
+            or "https://github.com/wcass77/family-logistics"
+        ).strip()
+        processor = Processor(Client(api_key_file), workspace, rule_repository_url=repository_url)
         _worker = Worker(store, processor, failure_notifier=processor.failure_reply)
         threading.Thread(target=_worker.run, name="zhaan-agentmail-worker", daemon=True).start()
     else:
