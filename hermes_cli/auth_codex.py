@@ -379,20 +379,28 @@ def _import_codex_cli_tokens() -> Optional[Dict[str, str]]:
 def resolve_codex_runtime_credentials(
     *, force_refresh: bool = False, refresh_if_expiring: bool = True,
     refresh_skew_seconds: int = CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS) -> Dict[str, Any]:
-    """Resolve runtime credentials from Hermes's own Codex token store.
+    """Resolve Codex credentials from the pool, with singleton compatibility fallback.
 
-    Falls back to the credential pool when the singleton (``providers.openai-codex.tokens``) has no
-    usable access_token but the pool (``credential_pool.openai-codex``) does.
-
-    This closes the divergence between the chat path (singleton-only via this function) and the auxiliary
-    path (pool-first via ``_read_codex_access_token``). Without this fallback, a user whose tokens live only
-    in the pool — for example after a manual pool seed, a partial re-auth, or pool-only restoration from a
-    backup — gets a bare HTTP 401 ``Missing Authentication header`` from the wire instead of a usable
-    credential. See issue #32992.
+    The credential pool is authoritative for live traffic: its selection strategy
+    establishes the default account and owns rate-limit/auth-failure rotation.
+    The singleton is consulted only for existing unpooled installations, so a
+    legacy ``providers.openai-codex`` record cannot bypass a configured pool.
     """
     from hermes_cli.auth import (
         _auth_store_lock, _codex_access_token_is_expiring, _probe_codex_quota_restored,
         _read_codex_tokens)
+    try:
+        from agent.credential_pool import load_pool
+        pool = load_pool("openai-codex")
+        entry = pool.select() if pool and pool.has_credentials() else None
+        pool_token = _stripped(
+            getattr(entry, "runtime_api_key", None) or getattr(entry, "access_token", ""))
+        if pool_token:
+            return _codex_runtime_result(
+                pool_token, source="credential_pool", last_refresh=getattr(entry, "last_refresh", None))
+    except Exception:
+        logger.debug("Codex credential-pool selection failed; trying legacy singleton", exc_info=True)
+
     read_error: Optional[AuthError] = None
     data = None
     try:

@@ -104,6 +104,35 @@ def test_resolve_codex_runtime_credentials_falls_back_to_pool_when_singleton_emp
     assert resolved["base_url"]  # default codex backend URL
 
 
+def test_resolve_codex_runtime_credentials_prefers_pool_over_legacy_singleton(tmp_path, monkeypatch):
+    """A configured pool must control the active account, even with old state present."""
+    hermes_home = tmp_path / "hermes"
+    hermes_home.mkdir(parents=True, exist_ok=True)
+    auth_store = {
+        "version": 1,
+        "providers": {
+            "openai-codex": {
+                "tokens": {"access_token": "legacy-token", "refresh_token": "legacy-refresh"},
+                "last_refresh": "2026-01-01T00:00:00Z",
+            },
+        },
+        "credential_pool": {
+            "openai-codex": [
+                {"id": "clinical", "label": "clinical", "auth_type": "oauth", "priority": 0,
+                 "source": "manual:device_code", "access_token": "clinical-token", "refresh_token": "clinical-refresh"},
+                {"id": "personal", "label": "personal", "auth_type": "oauth", "priority": 1,
+                 "source": "manual:device_code", "access_token": "personal-token", "refresh_token": "personal-refresh"},
+            ],
+        },
+    }
+    (hermes_home / "auth.json").write_text(json.dumps(auth_store))
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+
+    resolved = resolve_codex_runtime_credentials(refresh_if_expiring=False)
+    assert resolved["api_key"] == "clinical-token"
+    assert resolved["source"] == "credential_pool"
+
+
 
 
 def test_save_codex_tokens_syncs_credential_pool(tmp_path, monkeypatch):
@@ -465,13 +494,13 @@ def test_codex_tokens_not_written_to_shared_file(tmp_path, monkeypatch):
     assert data["tokens"]["access_token"] == "hermes-at"
 
 
-def test_resolve_returns_hermes_auth_store_source(tmp_path, monkeypatch):
+def test_resolve_seeds_and_returns_credential_pool_source_from_legacy_state(tmp_path, monkeypatch):
     hermes_home = tmp_path / "hermes"
     _setup_hermes_auth(hermes_home)
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
 
     creds = resolve_codex_runtime_credentials()
-    assert creds["source"] == "hermes-auth-store"
+    assert creds["source"] == "credential_pool"
     assert creds["provider"] == "openai-codex"
     assert creds["base_url"] == DEFAULT_CODEX_BASE_URL
 
@@ -607,7 +636,5 @@ def _patch_httpx_post(monkeypatch, responses):
             return next(seq)
 
     monkeypatch.setattr("hermes_cli.auth.httpx.Client", lambda *a, **k: _FakeClient())
-
-
 
 
