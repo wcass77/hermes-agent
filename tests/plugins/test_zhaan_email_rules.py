@@ -228,3 +228,26 @@ def test_generic_processor_footer_is_explicit(tmp_path):
     service = processor_mod.Processor(object(), tmp_path)
     decision = rules.RuleDecision(metadata=None, rule=None, status="unparseable")
     assert service._routing_footer(decision) == "Processing rule: none (generic email intake)"
+
+
+def test_fingerprint_converges_across_forwarders_and_recipient_tracking():
+    def forwarded(forwarder, recipient, token):
+        return {
+            "from": forwarder,
+            "subject": "Fwd: Brearley Bytes",
+            "text": (
+                f"FYI from {forwarder}\n\n---------- Forwarded message ---------\n"
+                "From: Brearley <brearley@myschoolemails.com>\n"
+                "Date: Sunday\nSubject: Brearley Bytes—September 6, 2026\n"
+                f"To: {recipient}\n\nNewsletter body\n"
+                f"https://school.example/events?recipient={token}\n"
+            ),
+            "attachments": [],
+        }
+
+    willy = forwarded("Willy <wcass77@gmail.com>", "wcass77@gmail.com", "willy")
+    wife = forwarded("Wife <wife@example.com>", "wife@example.com", "wife")
+
+    assert rules.canonical_email_fingerprint(willy) == rules.canonical_email_fingerprint(wife)
+    wife["text"] = wife["text"].replace("Newsletter body", "Different issue")
+    assert rules.canonical_email_fingerprint(willy) != rules.canonical_email_fingerprint(wife)

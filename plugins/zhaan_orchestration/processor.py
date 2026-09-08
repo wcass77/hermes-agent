@@ -9,13 +9,26 @@ import re
 import shutil
 import subprocess
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from hermes_state import SessionDB
 
 from .agentmail import Client
-from .email_rules import RuleDecision, rule_url, select_rule
+from .email_rules import (
+    RuleDecision,
+    canonical_email_fingerprint,
+    rule_url,
+    select_rule,
+)
+
+
+@dataclass(frozen=True)
+class PreparedEmail:
+    message: dict[str, Any]
+    decision: RuleDecision
+    fingerprint: str
 
 
 def child_environment() -> dict[str, str]:
@@ -112,9 +125,18 @@ class Processor:
                     break
                 parent = parent.parent
 
-    def __call__(self, item: dict[str, Any], session_id: str) -> None:
+    def prepare(self, item: dict[str, Any]) -> PreparedEmail:
         message = self.client.get_message(item["inbox_id"], item["message_id"])
         decision = select_rule(message, self.workspace / "email-intake" / "rules")
+        return PreparedEmail(
+            message=message,
+            decision=decision,
+            fingerprint=canonical_email_fingerprint(message),
+        )
+
+    def process(self, item: dict[str, Any], session_id: str, prepared: PreparedEmail) -> None:
+        message = prepared.message
+        decision = prepared.decision
         attachments = self._download_attachments(message)
         db = SessionDB()
         if not db.resolve_session_id(session_id):
@@ -172,6 +194,15 @@ class Processor:
             self._remove_archived_staging_attachments(attachments)
         finally:
             manifest.unlink(missing_ok=True)
+
+    def __call__(self, item: dict[str, Any], session_id: str) -> None:
+        self.process(item, session_id, self.prepare(item))
+
+    def reply_duplicate(self, item: dict[str, Any], _owner_event_id: str | None = None) -> None:
+        self.client.reply(
+            item["inbox_id"], item["message_id"],
+            "I already received and processed this same original email from another forward, so I did not process it again.",
+        )
 
     def failure_reply(self, item: dict[str, Any]) -> None:
         self.client.reply(

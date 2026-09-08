@@ -8,7 +8,9 @@ import importlib
 import json
 import os
 import shutil
+import sqlite3
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -21,6 +23,7 @@ store_mod = importlib.import_module("plugins.zhaan_orchestration.store")
 webhook = importlib.import_module("plugins.zhaan_orchestration.webhook")
 shared_update = importlib.import_module("plugins.zhaan_orchestration.shared_update")
 processor = importlib.import_module("plugins.zhaan_orchestration.processor")
+worker_mod = importlib.import_module("plugins.zhaan_orchestration.worker")
 document_return = importlib.import_module("plugins.zhaan_orchestration.document_return")
 
 
@@ -81,6 +84,20 @@ def test_stable_email_sessions(tmp_path):
     assert store.session_for_email_thread("a") == store.session_for_email_thread("a")
 
 
+def test_existing_orchestration_database_migrates_for_content_dedup(tmp_path):
+    path = tmp_path / "state.sqlite"
+    with sqlite3.connect(path) as db:
+        db.executescript(store_mod.SCHEMA)
+
+    store_mod.Store(path)
+
+    with sqlite3.connect(path) as db:
+        columns = {row[1] for row in db.execute("PRAGMA table_info(ingress_events)")}
+        indexes = {row[1] for row in db.execute("PRAGMA index_list(ingress_events)")}
+    assert {"content_fingerprint", "duplicate_of_event_id"} <= columns
+    assert "ingress_events_content_fingerprint" in indexes
+
+
 def test_queue_claim_retry_recovery_and_completion(tmp_path):
     store = store_mod.Store(tmp_path / "state.sqlite")
     payload = {"event_id": "evt", "message": {"message_id": "msg", "thread_id": "thr", "inbox_id": "in"}}
@@ -95,6 +112,69 @@ def test_queue_claim_retry_recovery_and_completion(tmp_path):
     assert store.claim_next("worker") is not None
     store.complete("evt")
     assert store.counts() == {"complete": 1}
+
+
+def test_content_claim_waits_then_marks_cross_forward_duplicate(tmp_path):
+    store = store_mod.Store(tmp_path / "state.sqlite")
+    for number in (1, 2):
+        payload = {
+            "event_id": f"evt{number}",
+            "message": {"message_id": f"msg{number}", "thread_id": f"thr{number}", "inbox_id": "in"},
+        }
+        store.enqueue(f"wh{number}", payload, f"person{number}@example.com")
+
+    assert store.claim_content("evt1", "same") == ("owner", "evt1")
+    assert store.claim_content("evt2", "same") == ("wait", "evt1")
+    store.complete("evt1")
+    assert store.claim_content("evt2", "same") == ("duplicate", "evt1")
+
+
+def test_failed_content_owner_releases_fingerprint(tmp_path):
+    store = store_mod.Store(tmp_path / "state.sqlite")
+    for number in (1, 2):
+        payload = {
+            "event_id": f"evt{number}",
+            "message": {"message_id": f"msg{number}", "thread_id": f"thr{number}", "inbox_id": "in"},
+        }
+        store.enqueue(f"wh{number}", payload, "person@example.com")
+    store.claim_content("evt1", "same")
+    for _ in range(5):
+        store.claim_next("worker")
+        status = store.fail("evt1", "broken", delay_seconds=0)
+    assert status == "failed"
+    assert store.claim_content("evt2", "same") == ("owner", "evt2")
+
+
+def test_worker_processes_canonical_email_once_and_replies_to_duplicate(tmp_path):
+    store = store_mod.Store(tmp_path / "state.sqlite")
+    for number in (1, 2):
+        payload = {
+            "event_id": f"evt{number}",
+            "message": {"message_id": f"msg{number}", "thread_id": f"thr{number}", "inbox_id": "in"},
+        }
+        store.enqueue(f"wh{number}", payload, f"person{number}@example.com")
+
+    class Processor:
+        def __init__(self):
+            self.processed = []
+            self.duplicates = []
+
+        def prepare(self, _item):
+            return SimpleNamespace(fingerprint="same")
+
+        def process(self, item, _session_id, _prepared):
+            self.processed.append(item["event_id"])
+
+        def reply_duplicate(self, item, owner_id):
+            self.duplicates.append((item["event_id"], owner_id))
+
+    processor_service = Processor()
+    worker = worker_mod.Worker(store, processor_service)
+    assert worker.run_once()
+    assert worker.run_once()
+    assert processor_service.processed == ["evt1"]
+    assert processor_service.duplicates == [("evt2", "evt1")]
+    assert store.counts() == {"complete": 2}
 
 
 def test_discord_unknown_user_is_dropped(tmp_path, monkeypatch):

@@ -25,9 +25,24 @@ class Worker:
         item = self.store.claim_next(threading.current_thread().name)
         if item is None:
             return False
-        session_id = self.store.session_for_email_thread(item["thread_id"])
         try:
-            self.processor(item, session_id)
+            if hasattr(self.processor, "prepare"):
+                prepared = self.processor.prepare(item)
+                disposition, owner_id = self.store.claim_content(
+                    item["event_id"], prepared.fingerprint
+                )
+                if disposition == "wait":
+                    self.store.defer(item["event_id"])
+                    return True
+                if disposition == "duplicate":
+                    self.processor.reply_duplicate(item, owner_id)
+                    self.store.complete(item["event_id"])
+                    return True
+                session_id = self.store.session_for_email_thread(item["thread_id"])
+                self.processor.process(item, session_id, prepared)
+            else:
+                session_id = self.store.session_for_email_thread(item["thread_id"])
+                self.processor(item, session_id)
         except Exception as exc:
             status = self.store.fail(item["event_id"], str(exc))
             logger.exception("Zhaan AgentMail event %s moved to %s", item["event_id"], status)

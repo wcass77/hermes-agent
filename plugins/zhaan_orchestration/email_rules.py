@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import html
+import hashlib
+import json
 import logging
 import re
 from dataclasses import dataclass
@@ -9,6 +11,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
+from urllib.parse import urlsplit, urlunsplit
 
 import yaml
 
@@ -25,6 +28,7 @@ _FORWARD_MARKER = re.compile(
 )
 _HEADER = re.compile(r"(?im)^\s*(from|to|subject)\s*:\s*(.+?)\s*$")
 _SUBJECT_PREFIX = re.compile(r"(?i)^\s*(?:re|fw|fwd)\s*:\s*")
+_URL = re.compile(r"https?://[^\s<>()]+", re.IGNORECASE)
 
 
 class _TextExtractor(HTMLParser):
@@ -152,6 +156,86 @@ def extract_forwarded_metadata(message: dict[str, Any]) -> ForwardedMetadata | N
         if value and (metadata := _header_block(str(value))):
             return metadata
     return None
+
+
+def _without_tracking(value: str) -> str:
+    """Discard URL query/fragment tokens that commonly vary by recipient."""
+    trailing = ""
+    while value and value[-1] in ".,;:!?)]}":
+        trailing = value[-1] + trailing
+        value = value[:-1]
+    parts = urlsplit(value)
+    return urlunsplit((parts.scheme.casefold(), parts.netloc.casefold(), parts.path, "", "")) + trailing
+
+
+def _canonical_text(value: str) -> str:
+    value = value.replace("\r\n", "\n").replace("\r", "\n")
+    value = value.replace("\u00a0", " ").replace("\u200b", "")
+    value = _URL.sub(lambda match: _without_tracking(match.group(0)), value)
+    lines = [re.sub(r"\s+", " ", line).strip() for line in value.splitlines()]
+    while lines and not lines[0]:
+        lines.pop(0)
+    while lines and not lines[-1]:
+        lines.pop()
+    return "\n".join(line for index, line in enumerate(lines) if line or (index and lines[index - 1]))
+
+
+def _forwarded_body(text: str) -> str:
+    """Remove the forwarding wrapper and original delivery headers."""
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    marker = _FORWARD_MARKER.search(text)
+    candidate = text[marker.end():] if marker else text
+    lines = candidate.splitlines()
+    seen_from = False
+    seen_subject = False
+    for index, line in enumerate(lines[:60]):
+        header = _HEADER.match(line)
+        if header:
+            seen_from = seen_from or header.group(1).casefold() == "from"
+            seen_subject = seen_subject or header.group(1).casefold() == "subject"
+        if not line.strip() and seen_from and seen_subject:
+            return "\n".join(lines[index + 1:])
+    return candidate
+
+
+def canonical_email_fingerprint(message: dict[str, Any]) -> str:
+    """Identify one original email independently of who forwarded it."""
+    metadata = extract_forwarded_metadata(message)
+    structured = next(
+        (
+            message[key] for key in ("forwarded_message", "forwarded", "original_message")
+            if isinstance(message.get(key), dict)
+        ),
+        None,
+    )
+    if structured:
+        body = structured.get("text") or structured.get("extracted_text")
+        if not body and structured.get("html"):
+            body = _plain_text_from_html(str(structured["html"]))
+        body = str(body or "")
+    else:
+        body = message.get("text") or message.get("extracted_text")
+        if not body and message.get("html"):
+            body = _plain_text_from_html(str(message["html"]))
+        body = _forwarded_body(str(body or ""))
+
+    attachments = sorted(
+        (
+            str(item.get("filename") or "").casefold(),
+            item.get("size") or item.get("content_length"),
+            str(item.get("content_type") or item.get("mime_type") or "").casefold(),
+        )
+        for item in message.get("attachments", [])
+        if isinstance(item, dict)
+    )
+    identity = {
+        "original_sender": metadata.sender if metadata else "",
+        "original_subject": metadata.subject.casefold() if metadata else normalize_subject(message.get("subject", "")).casefold(),
+        "body": _canonical_text(body),
+        "attachments": attachments,
+    }
+    encoded = json.dumps(identity, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _frontmatter(path: Path) -> tuple[dict[str, Any], str]:

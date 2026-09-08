@@ -34,6 +34,15 @@ class Store:
         path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as db:
             db.executescript(SCHEMA)
+            columns = {row[1] for row in db.execute("PRAGMA table_info(ingress_events)")}
+            if "content_fingerprint" not in columns:
+                db.execute("ALTER TABLE ingress_events ADD COLUMN content_fingerprint TEXT")
+            if "duplicate_of_event_id" not in columns:
+                db.execute("ALTER TABLE ingress_events ADD COLUMN duplicate_of_event_id TEXT")
+            db.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ingress_events_content_fingerprint "
+                "ON ingress_events(content_fingerprint) WHERE content_fingerprint IS NOT NULL"
+            )
 
     def connect(self):
         return sqlite3.connect(self.path, timeout=30, isolation_level=None)
@@ -111,6 +120,62 @@ class Store:
             cursor = db.execute("UPDATE ingress_events SET status='retry' WHERE status='processing'")
             return cursor.rowcount
 
+    def claim_content(self, event_id: str, fingerprint: str) -> tuple[str, str | None]:
+        """Atomically elect one event to process a canonical original email."""
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            current = db.execute(
+                "SELECT content_fingerprint FROM ingress_events WHERE event_id=?", (event_id,)
+            ).fetchone()
+            if current is None:
+                db.rollback()
+                raise KeyError(event_id)
+            if current[0] == fingerprint:
+                db.commit()
+                return "owner", event_id
+            owner = db.execute(
+                "SELECT event_id, status FROM ingress_events WHERE content_fingerprint=?",
+                (fingerprint,),
+            ).fetchone()
+            if owner is None:
+                db.execute(
+                    "UPDATE ingress_events SET content_fingerprint=?, duplicate_of_event_id=NULL WHERE event_id=?",
+                    (fingerprint, event_id),
+                )
+                db.commit()
+                return "owner", event_id
+            owner_id, owner_status = owner
+            if owner_status == "failed":
+                db.execute(
+                    "UPDATE ingress_events SET content_fingerprint=NULL WHERE event_id=?", (owner_id,)
+                )
+                db.execute(
+                    "UPDATE ingress_events SET content_fingerprint=?, duplicate_of_event_id=NULL WHERE event_id=?",
+                    (fingerprint, event_id),
+                )
+                db.commit()
+                return "owner", event_id
+            if owner_status == "complete":
+                db.execute(
+                    "UPDATE ingress_events SET duplicate_of_event_id=? WHERE event_id=?",
+                    (owner_id, event_id),
+                )
+                db.commit()
+                return "duplicate", owner_id
+            db.commit()
+            return "wait", owner_id
+
+    def defer(self, event_id: str, *, delay_seconds: int = 10) -> None:
+        available = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=delay_seconds)).isoformat()
+        with self.connect() as db:
+            db.execute(
+                """UPDATE ingress_events
+                SET status='retry', available_at=?,
+                    attempts=CASE WHEN attempts > 0 THEN attempts - 1 ELSE 0 END
+                WHERE event_id=?""",
+                (available, event_id),
+            )
+
     def complete(self, event_id: str) -> None:
         with self.connect() as db:
             db.execute(
@@ -131,5 +196,9 @@ class Store:
                 "UPDATE ingress_events SET status=?, available_at=?, last_error=? WHERE event_id=?",
                 (status, available, error[:2000], event_id),
             )
+            if status == "failed":
+                db.execute(
+                    "UPDATE ingress_events SET content_fingerprint=NULL WHERE event_id=?", (event_id,)
+                )
             db.commit()
             return status
