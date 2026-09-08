@@ -323,7 +323,10 @@ def _scaffold_header(
 _SCAN_SKIP_PARTS = {'.git', '.github', '.hub', '.archive'}
 
 
-def _scan_skill_md(skill_md: Path, disabled: set, seen_names: set, commands: Dict[str, Dict[str, Any]], resolve_command) -> None:
+def _scan_skill_md(
+    skill_md: Path, disabled: set, allowed: set | None, seen_names: set,
+    commands: Dict[str, Dict[str, Any]], resolve_command,
+) -> None:
     """Register one SKILL.md in *commands* (no-op when filtered or colliding)."""
     from tools.skills_tool import _parse_frontmatter, skill_matches_platform, skill_matches_environment
     if any(part in _SCAN_SKIP_PARTS for part in skill_md.parts):
@@ -333,7 +336,7 @@ def _scan_skill_md(skill_md: Path, disabled: set, seen_names: set, commands: Dic
     if not skill_matches_platform(frontmatter) or not skill_matches_environment(frontmatter):
         return
     name = frontmatter.get('name', skill_md.parent.name)
-    if name in seen_names or name in disabled:
+    if name in seen_names or name in disabled or (allowed is not None and name not in allowed):
         return
     description = frontmatter.get('description', '') or next(
         (line.strip()[:80] for line in body.strip().split('\n') if line.strip() and not line.strip().startswith('#')),
@@ -375,12 +378,13 @@ def scan_skill_commands() -> Dict[str, Dict[str, Any]]:
     # (#74574).
     commands: Dict[str, Dict[str, Any]] = {}
     try:
-        from tools.skills_tool import _skills_dir, _get_disabled_skill_names
+        from tools.skills_tool import _skills_dir, _get_allowed_skill_names, _get_disabled_skill_names
         from agent.skill_utils import (
             get_external_skills_dirs, get_project_skills_dirs, iter_project_skill_files, iter_skill_index_files,
         )
         from hermes_cli.commands import resolve_command
         disabled = _get_disabled_skill_names()
+        allowed = _get_allowed_skill_names()
         seen_names: set = set()
         # Precedence: project (through the quarantine chokepoint) > local > external.
         # Resolve the local dir at call time: import-time SKILLS_DIR is frozen to
@@ -393,7 +397,7 @@ def scan_skill_commands() -> Dict[str, Dict[str, Any]]:
         for _iter in iters:
             for skill_md in _iter:
                 try:
-                    _scan_skill_md(skill_md, disabled, seen_names, commands, resolve_command)
+                    _scan_skill_md(skill_md, disabled, allowed, seen_names, commands, resolve_command)
                 except Exception:
                     continue
     except Exception:
@@ -543,6 +547,7 @@ def _disabled_skill_names(platform: str | None = None) -> set:
 def _load_skill_blocks(
     identifiers: list[str], load, activation_note, task_id: str | None, *,
     missing_label=lambda ident: ident, disabled_names: set | None = None, disabled_as_missing: bool = False,
+    enabled=None,
 ) -> tuple[list[str], list[str], list[str], list[str]]:
     """Load each distinct identifier via *load* and render its block; returns
     ``(loaded_names, missing, disabled, blocks)``. With *disabled_names*, members
@@ -562,7 +567,8 @@ def _load_skill_blocks(
             missing.append(missing_label(identifier))
             continue
         skill_name = loaded[2]
-        if disabled_names and (skill_name in disabled_names or identifier in disabled_names):
+        if ((disabled_names and (skill_name in disabled_names or identifier in disabled_names))
+                or (enabled is not None and not enabled(skill_name))):
             if disabled_as_missing:
                 missing.append(identifier)
             else:
@@ -583,6 +589,10 @@ def build_preloaded_skills_prompt(skill_identifiers: list[str], task_id: str | N
     ``_load_skill_payload``, bypassing ``get_skill_commands()``'s scan-time disabled filter — mirrors the
     bundle-invocation gate (#59156).
     """
+    try:
+        from agent.skill_utils import is_skill_enabled
+    except Exception:
+        is_skill_enabled = lambda _name: True
     loaded_names, missing, _disabled, prompt_parts = _load_skill_blocks(
         [(raw or "").strip() for raw in skill_identifiers],
         lambda identifier: _load_skill_payload(identifier, task_id=task_id),
@@ -590,5 +600,6 @@ def build_preloaded_skills_prompt(skill_identifiers: list[str], task_id: str | N
                       "preloaded. Treat its instructions as active guidance for the duration of this "
                       "session unless the user overrides them.]"),
         task_id, disabled_names=_disabled_skill_names(), disabled_as_missing=True,
+        enabled=is_skill_enabled,
     )
     return "\n\n".join(prompt_parts), loaded_names, missing

@@ -2710,7 +2710,7 @@ def _check_unavailable_skill(command_name: str) -> str | None:
     """Hint when a command matches a skill that is disabled or optional-install only; else None."""
     normalized = command_name.lower().replace("_", "-")
     try:
-        from tools.skills_tool import _get_disabled_skill_names
+        from tools.skills_tool import _get_disabled_skill_names, _is_skill_disabled
         from agent.skill_utils import get_all_skills_dirs, is_excluded_skill_path
         disabled = _get_disabled_skill_names()
 
@@ -2724,7 +2724,7 @@ def _check_unavailable_skill(command_name: str) -> str | None:
                 if not slug or not declared_name:
                     continue
                 # disabled is keyed by the declared frontmatter name (what skills.disabled stores).
-                if slug == normalized and declared_name in disabled:
+                if slug == normalized and (declared_name in disabled or _is_skill_disabled(declared_name)):
                     return (
                         f"The **{command_name}** skill is installed but disabled.\n"
                         f"Enable it with: `hermes skills config`")

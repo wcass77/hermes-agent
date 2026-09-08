@@ -309,6 +309,34 @@ def _normalize_string_set(values) -> Set[str]:
     return {name.strip() for name in parse_config_string_list(values) if name.strip()}
 
 
+def get_allowed_skill_names() -> Optional[Set[str]]:
+    """Return the optional fail-closed skill allowlist from config.yaml.
+
+    A missing or null ``skills.allowed`` preserves the default opt-out
+    behavior. An explicitly empty list disables every non-essential skill.
+    """
+    skills_cfg = _skills_cfg()
+    if skills_cfg is None or "allowed" not in skills_cfg:
+        return None
+    raw_allowed = skills_cfg.get("allowed")
+    if raw_allowed is None:
+        return None
+    return _normalize_string_set(raw_allowed)
+
+
+def is_skill_enabled(name: str, platform: str | None = None) -> bool:
+    """Return whether *name* passes the allowlist and deny-list policy."""
+    normalized = str(name or "").strip()
+    if not normalized:
+        return False
+    if normalized in ESSENTIAL_SKILLS:
+        return True
+    allowed = get_allowed_skill_names()
+    if allowed is not None and normalized not in allowed:
+        return False
+    return normalized not in get_disabled_skill_names(platform=platform)
+
+
 # config identity -> resolved external dirs. Called once per skill during
 # banner / tool-registry scans; re-resolving each time dominated cold-start.
 _EXTERNAL_DIRS_CACHE: Dict[Tuple[str, int], List[Path]] = {}
@@ -665,7 +693,6 @@ def discover_all_skill_config_vars() -> List[Dict[str, Any]]:
     """Config var declarations across all enabled, platform-compatible skills,
     deduplicated by key; each dict carries a ``skill`` attribution key."""
     all_vars: Dict[str, Dict[str, Any]] = {}
-    disabled = get_disabled_skill_names()
     for skills_dir in get_all_skills_dirs():
         if not skills_dir.is_dir():
             continue
@@ -675,7 +702,7 @@ def discover_all_skill_config_vars() -> List[Dict[str, Any]]:
             except Exception:
                 continue
             skill_name = str(frontmatter.get("name") or skill_file.parent.name)
-            if skill_name in disabled or not skill_matches_platform(frontmatter):
+            if not is_skill_enabled(skill_name) or not skill_matches_platform(frontmatter):
                 continue
             for var in extract_skill_config_vars(frontmatter):
                 if var["key"] not in all_vars:

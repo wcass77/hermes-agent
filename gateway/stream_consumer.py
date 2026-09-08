@@ -74,6 +74,10 @@ class StreamConsumerConfig:
     # (progressive editMessageText).  "off" is handled by the gateway.
     transport: str = "edit"
     chat_type: str = ""  # originating chat type; gates platform-specific drafts
+    # Optional visible seed sent before the model emits its first token. This
+    # lets edit-capable platforms acknowledge tool-first turns immediately,
+    # then turn that same message into the streamed answer.
+    initial_content: str = ""
 
 
 @dataclass
@@ -528,6 +532,8 @@ class GatewayStreamConsumer(StreamTransportMixin, StreamFallbackMixin, StreamThi
         """Async task that drains the queue and edits the platform message."""
         self._len_fn, self._safe_limit = self._resolve_length_budget()
         await self._start_transports()
+        if self.cfg.initial_content:
+            await self._send_or_edit(self.cfg.initial_content)
         try:
             while True:
                 # Session reset (/new, /stop): abandon rather than deliver stale deltas.

@@ -2376,6 +2376,7 @@ class GatewayTurnMixin:
             cursor=_effective_cursor, buffer_only=_buffer_only,
             fresh_final_after_seconds=_fresh_final_secs, transport=scfg.transport or "edit",
             chat_type=getattr(source, "chat_type", "") or "",
+            initial_content=("Working on it..." if source.platform == Platform.DISCORD else ""),
         )
         return _consumer_cfg, _pause_typing_before_finalize
 

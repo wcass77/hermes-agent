@@ -120,6 +120,7 @@ skill_matches_platform = _skill_utils_delegate("skill_matches_platform")
 skill_matches_environment = _skill_utils_delegate("skill_matches_environment")
 _parse_frontmatter = _skill_utils_delegate("parse_frontmatter")
 _get_disabled_skill_names = _skill_utils_delegate("get_disabled_skill_names")
+_get_allowed_skill_names = _skill_utils_delegate("get_allowed_skill_names")
 
 
 def check_skills_requirements() -> bool:
@@ -157,18 +158,25 @@ def _is_skill_disabled(name: str, platform: str = None) -> bool:
     ``HERMES_SESSION_PLATFORM``. A globally-disabled skill stays disabled on every platform
     (keep in sync with agent.skill_utils.get_disabled_skill_names)."""
     try:
+        from agent.skill_utils import ESSENTIAL_SKILLS, parse_config_string_list
         from hermes_cli.config import load_config
-        skills_cfg = load_config().get("skills", {})
+        if name in ESSENTIAL_SKILLS:
+            return False
+        skills_cfg = load_config().get("skills", {}) or {}
+        allowed = skills_cfg.get("allowed")
+        if allowed is not None and name not in set(parse_config_string_list(allowed)):
+            return True
         resolved_platform = platform or os.getenv("HERMES_PLATFORM")
         if not resolved_platform:
             with suppress(Exception):
                 from gateway.session_context import get_session_env
                 resolved_platform = get_session_env("HERMES_SESSION_PLATFORM") or ""
-        platform_disabled = None
+        disabled = set(parse_config_string_list(skills_cfg.get("disabled", [])))
         if resolved_platform:
-            platform_disabled = cfg_get(skills_cfg, "platform_disabled", resolved_platform)
-        in_platform = platform_disabled is not None and name in platform_disabled
-        return in_platform or name in skills_cfg.get("disabled", [])
+            disabled.update(parse_config_string_list(
+                cfg_get(skills_cfg, "platform_disabled", resolved_platform)
+            ))
+        return name in disabled
     except Exception:
         return False
 
@@ -190,8 +198,12 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
     from agent.skill_utils import iter_project_skill_files, iter_skill_index_files
     cache_key = "with_disabled" if skip_disabled else "filtered"
     disabled = set() if skip_disabled else _get_disabled_skill_names()
+    allowed = None if skip_disabled else _get_allowed_skill_names()
     project_dirs, dirs_to_scan, _ = _skill_search_dirs()
-    signature = _skills_scan_signature(dirs_to_scan, disabled)
+    signature = _skills_scan_signature(
+        dirs_to_scan,
+        disabled | ({f"__allowed__:{name}" for name in allowed} if allowed is not None else set()),
+    )
     now = time.monotonic()
     cached = _SKILLS_CACHE.get(cache_key)
     if cached is not None and cached[0] == signature and (now - cached[1]) < _SKILLS_CACHE_TTL_SECONDS:
@@ -210,7 +222,7 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
                 if not skill_matches_platform(frontmatter) or not skill_matches_environment(frontmatter):
                     continue
                 name = frontmatter.get("name", skill_md.parent.name)[:MAX_NAME_LENGTH]
-                if name in seen_names or name in disabled:
+                if name in seen_names or name in disabled or (allowed is not None and name not in allowed):
                     continue
                 description = frontmatter.get("description", "")
                 if not description:  # first non-heading body line (a null value stays null)

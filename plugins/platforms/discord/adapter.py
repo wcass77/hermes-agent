@@ -2748,11 +2748,19 @@ class DiscordAdapter(DiscordMediaMixin, BasePlatformAdapter):
         """Check if message reactions are enabled via config/env."""
         return os.getenv("DISCORD_REACTIONS", "true").lower() not in {"false", "0", "no"}
 
+    def _processing_start_reaction_enabled(self) -> bool:
+        """Whether to add the optional in-progress reaction to a user message."""
+        return (
+            self._reactions_enabled()
+            and os.getenv("DISCORD_PROCESSING_START_REACTION", "true").lower()
+            not in {"false", "0", "no"}
+        )
+
     async def on_processing_start(self, event: MessageEvent) -> None:
         """Add an in-progress reaction and record durable handling state."""
         message = event.raw_message
         acked = False
-        if self._reactions_enabled() and hasattr(message, "add_reaction"):
+        if self._processing_start_reaction_enabled() and hasattr(message, "add_reaction"):
             acked = await self._add_reaction(message, "👀")
         await asyncio.to_thread(self._record_discord_processing_start, event, emoji_ack=acked)
 
@@ -6978,6 +6986,11 @@ def _apply_yaml_config(yaml_cfg: dict, discord_cfg: dict) -> dict | None:
     for key, env_key in (("auto_thread", "DISCORD_AUTO_THREAD"), ("reactions", "DISCORD_REACTIONS")):
         if key in discord_cfg:
             _env_default(env_key, str(discord_cfg[key]).lower())
+    if "processing_start_reaction" in discord_cfg:
+        _env_default(
+            "DISCORD_PROCESSING_START_REACTION",
+            str(discord_cfg["processing_start_reaction"]).lower(),
+        )
     backfill_cfg = discord_cfg.get("missed_message_backfill")
     if isinstance(backfill_cfg, dict):
         seeded_extra["missed_message_backfill"] = dict(backfill_cfg)
