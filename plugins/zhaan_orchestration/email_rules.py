@@ -14,6 +14,12 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
+_SLUG = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*")
+_TOP_LEVEL_KEYS = {
+    "schema_version", "id", "name", "enabled", "priority", "match",
+    "source", "people", "reply",
+}
+
 _FORWARD_MARKER = re.compile(
     r"(?im)^\s*(?:-{2,}\s*forwarded message\s*-{2,}|begin forwarded message:?)\s*$"
 )
@@ -166,17 +172,62 @@ def _frontmatter(path: Path) -> tuple[dict[str, Any], str]:
     return metadata, body
 
 
+def _require_exact_keys(
+    value: dict[str, Any], *, allowed: set[str], required: set[str], label: str
+) -> None:
+    unknown = sorted(set(value) - allowed)
+    missing = sorted(required - set(value))
+    if unknown:
+        raise ValueError(f"{label} contains unknown fields: {', '.join(unknown)}")
+    if missing:
+        raise ValueError(f"{label} is missing required fields: {', '.join(missing)}")
+
+
+def _is_slug(value: Any) -> bool:
+    return isinstance(value, str) and _SLUG.fullmatch(value) is not None
+
+
 def load_rule(path: Path) -> EmailRule:
     metadata, instructions = _frontmatter(path)
+    _require_exact_keys(
+        metadata,
+        allowed=_TOP_LEVEL_KEYS,
+        required=_TOP_LEVEL_KEYS,
+        label="front matter",
+    )
     if metadata.get("schema_version") != 1:
         raise ValueError("schema_version must be 1")
+    if not isinstance(metadata.get("enabled"), bool):
+        raise ValueError("enabled must be a boolean")
     match = metadata.get("match")
     if not isinstance(match, dict):
         raise ValueError("match must be a mapping")
+    _require_exact_keys(
+        match,
+        allowed={"original_from", "original_subject", "original_to"},
+        required={"original_from", "original_subject"},
+        label="match",
+    )
     sender_cfg = match.get("original_from")
     subject_cfg = match.get("original_subject")
     if not isinstance(sender_cfg, dict) or not isinstance(subject_cfg, dict):
         raise ValueError("match requires original_from and original_subject mappings")
+    _require_exact_keys(
+        sender_cfg,
+        allowed={"addresses", "required"},
+        required={"addresses"},
+        label="original_from",
+    )
+    _require_exact_keys(
+        subject_cfg,
+        allowed={"regex"},
+        required={"regex"},
+        label="original_subject",
+    )
+    if "required" in sender_cfg and not isinstance(sender_cfg["required"], bool):
+        raise ValueError("original_from.required must be a boolean")
+    if not isinstance(sender_cfg.get("addresses"), list):
+        raise ValueError("original_from.addresses must be a list")
     senders = frozenset(_address(value) for value in sender_cfg.get("addresses", []))
     if not senders or "" in senders:
         raise ValueError("original_from.addresses must contain valid mailbox addresses")
@@ -190,13 +241,24 @@ def load_rule(path: Path) -> EmailRule:
     recipient_cfg = match.get("original_to") or {}
     if not isinstance(recipient_cfg, dict):
         raise ValueError("original_to must be a mapping")
+    if recipient_cfg:
+        _require_exact_keys(
+            recipient_cfg,
+            allowed={"addresses", "required"},
+            required={"addresses"},
+            label="original_to",
+        )
+    if not isinstance(recipient_cfg.get("addresses", []), list):
+        raise ValueError("original_to.addresses must be a list")
+    if "required" in recipient_cfg and not isinstance(recipient_cfg["required"], bool):
+        raise ValueError("original_to.required must be a boolean")
     recipients = frozenset(_address(value) for value in recipient_cfg.get("addresses", []))
-    if "" in recipients:
-        raise ValueError("original_to.addresses contains an invalid mailbox address")
+    if recipient_cfg and (not recipients or "" in recipients):
+        raise ValueError("original_to.addresses must contain valid mailbox addresses")
     rule_id = metadata.get("id")
     name = metadata.get("name")
     priority = metadata.get("priority")
-    if not isinstance(rule_id, str) or not re.fullmatch(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*", rule_id):
+    if not _is_slug(rule_id):
         raise ValueError("id must be a lowercase kebab-case stable ID")
     if path.stem != rule_id:
         raise ValueError("filename must match id")
@@ -204,6 +266,28 @@ def load_rule(path: Path) -> EmailRule:
         raise ValueError("name must be a non-empty string")
     if not isinstance(priority, int) or isinstance(priority, bool):
         raise ValueError("priority must be an integer")
+    source = metadata.get("source")
+    people = metadata.get("people")
+    reply = metadata.get("reply")
+    if not _is_slug(source):
+        raise ValueError("source must be a lowercase kebab-case stable ID")
+    if (
+        not isinstance(people, list)
+        or not people
+        or any(not _is_slug(person) for person in people)
+        or len(set(people)) != len(people)
+    ):
+        raise ValueError("people must contain unique lowercase kebab-case IDs")
+    if not isinstance(reply, dict):
+        raise ValueError("reply must be a mapping")
+    _require_exact_keys(
+        reply,
+        allowed={"include_rule_link"},
+        required={"include_rule_link"},
+        label="reply",
+    )
+    if reply.get("include_rule_link") is not True:
+        raise ValueError("reply.include_rule_link must be true")
     return EmailRule(
         id=rule_id,
         name=name.strip(),

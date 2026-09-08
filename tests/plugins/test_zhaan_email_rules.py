@@ -147,6 +147,26 @@ def test_invalid_rule_is_skipped_without_blocking_valid_match(tmp_path, caplog):
     assert "Skipping invalid Zhaan email intake rule" in caplog.text
 
 
+@pytest.mark.parametrize(
+    "replacement",
+    [
+        "enabled: sometimes",
+        "reply:\n  include_rule_link: false",
+        "reply:\n  include_rule_link: true\nunknown: unsafe",
+    ],
+)
+def test_runtime_loader_rejects_rules_that_violate_schema_contract(tmp_path, replacement):
+    path = write_rule(tmp_path)
+    text = path.read_text(encoding="utf-8")
+    if replacement.startswith("enabled:"):
+        text = text.replace("enabled: true", replacement)
+    elif replacement.startswith("reply:"):
+        text = text.replace("reply:\n  include_rule_link: true", replacement)
+    path.write_text(text, encoding="utf-8")
+
+    assert rules.load_rules(path.parent) == []
+
+
 def test_processor_injects_rule_before_email_and_appends_canonical_footer(tmp_path, monkeypatch):
     rule_path = write_rule(tmp_path)
     message = {
