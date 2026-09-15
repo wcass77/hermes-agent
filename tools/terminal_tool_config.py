@@ -103,6 +103,33 @@ def _is_unusable_container_cwd(cwd: str) -> bool:
     return bool(cwd) and (_is_host_cwd(cwd) or not os.path.isabs(cwd))
 
 
+def _map_mounted_host_workdir(
+    workdir: str | None,
+    config: dict[str, Any],
+    *,
+    host_cwd: str | None = None,
+) -> str | None:
+    """Map an explicit path under a Docker-mounted host cwd into /workspace."""
+    if not workdir or config.get("env_type") != "docker":
+        return workdir
+    if not config.get("docker_mount_cwd_to_workspace"):
+        return workdir
+    mounted_cwd = host_cwd or config.get("host_cwd")
+    if not mounted_cwd:
+        return workdir
+    try:
+        relative = os.path.relpath(
+            os.path.normpath(workdir), os.path.normpath(mounted_cwd)
+        )
+    except ValueError:
+        return workdir
+    if relative == ".":
+        return "/workspace"
+    if relative == ".." or relative.startswith(f"..{os.sep}"):
+        return workdir
+    return "/workspace/" + relative.replace(os.sep, "/")
+
+
 def _tenv(name: str, default: str = "") -> str:
     """Scope-aware read of a ``TERMINAL_*`` variable. Every terminal setting
     must go through this: under gateway multiplexing the active profile's

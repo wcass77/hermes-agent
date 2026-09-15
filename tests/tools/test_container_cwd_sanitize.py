@@ -18,6 +18,7 @@ behaviour so neither path can regress.
 """
 
 import tools.terminal_tool as tt
+from tools.terminal_tool_config import _map_mounted_host_workdir
 
 
 class TestIsUnusableContainerCwd:
@@ -47,26 +48,60 @@ class TestMountedHostWorkdirMapping:
         }
 
     def test_mount_root_maps_to_workspace(self):
-        assert tt._map_mounted_host_workdir(
+        assert _map_mounted_host_workdir(
             "/home/hermes/profile/workspace", self._config()
         ) == "/workspace"
 
     def test_mount_child_maps_to_workspace_child(self):
-        assert tt._map_mounted_host_workdir(
+        assert _map_mounted_host_workdir(
             "/home/hermes/profile/workspace/documents", self._config()
         ) == "/workspace/documents"
 
     def test_unrelated_host_path_is_not_mapped(self):
-        assert tt._map_mounted_host_workdir(
+        assert _map_mounted_host_workdir(
             "/home/hermes/other", self._config()
         ) == "/home/hermes/other"
 
     def test_mapping_requires_enabled_docker_mount(self):
         config = self._config()
         config["docker_mount_cwd_to_workspace"] = False
-        assert tt._map_mounted_host_workdir(
+        assert _map_mounted_host_workdir(
             "/home/hermes/profile/workspace", config
         ) == "/home/hermes/profile/workspace"
+
+    def test_terminal_maps_explicit_mounted_workdir_before_execution(self, monkeypatch):
+        config = self._config()
+        plan = tt._ExecPlan(
+            config=config,
+            env_type="docker",
+            effective_task_id="default",
+            image="image",
+            cwd="/workspace",
+            host_cwd=config["host_cwd"],
+            effective_timeout=180,
+        )
+        captured = {}
+        monkeypatch.setattr(tt, "_plan_execution", lambda *args, **kwargs: plan)
+        monkeypatch.setattr(tt, "_acquire_env", lambda *args, **kwargs: object())
+        monkeypatch.setattr(tt, "_pre_exec_block", lambda *args, **kwargs: None)
+        monkeypatch.setattr(
+            tt,
+            "_run_approval_guards",
+            lambda *args, **kwargs: type(
+                "Verdict", (), {"note": None, "approved_run": False}
+            )(),
+        )
+
+        def run_foreground(*args, **kwargs):
+            captured["workdir"] = kwargs["workdir"]
+            return "{}"
+
+        monkeypatch.setattr(tt, "_run_foreground", run_foreground)
+
+        assert tt.terminal_tool(
+            "pwd", workdir="/home/hermes/profile/workspace/documents"
+        ) == "{}"
+        assert captured["workdir"] == "/workspace/documents"
 
 
 class TestOverrideCwdSanitizedAtCallSite:

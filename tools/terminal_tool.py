@@ -44,7 +44,8 @@ from tools.terminal_tool_lifecycle import (
     _evict_environment_for_task, cleanup_all_environments, ensure_task_env,
 )
 from tools.terminal_tool_config import (
-    _is_container_backend, _is_host_cwd, _is_unusable_container_cwd, _parse_env_var,
+    _is_container_backend, _is_host_cwd, _is_unusable_container_cwd,
+    _map_mounted_host_workdir, _parse_env_var,
     _plugin_env_flag, _quiet, _safe_getcwd, _tenv, _tenv_bool,
 )
 from tools.terminal_tool_backends import (
@@ -1196,6 +1197,9 @@ def terminal_tool(
     try:
         plan = _plan_execution(
             command, task_id=task_id, timeout=timeout, background=background, _host_local=_host_local,
+        )
+        workdir = _map_mounted_host_workdir(
+            workdir, plan.config, host_cwd=plan.host_cwd
         )
         env = _acquire_env(plan, task_id)
         env_type, cwd, effective_task_id = plan.env_type, plan.cwd, plan.effective_task_id
