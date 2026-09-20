@@ -48,6 +48,11 @@ dependencies = [
   "ruamel.yaml==0.18.17",
   "requests==2.33.0",  # CVE-2026-25645
   "jinja2==3.1.6",
+  # AnyIO 4.14.2 fixes GHSA-82r6-8w77-94w6 (IDNA 2003 TLS hostname
+  # matching) and GHSA-5p39-cfhj-2xmp (process-pool stderr deadlock).
+  # Keep this direct exact pin until a reviewed Hermes release carries an
+  # equal or newer fixed 4.14.x dependency.
+  "anyio==4.14.2",
   # Document-to-Markdown extraction for read_file (PDF, legacy Office,
   # OpenDocument, RTF, EPUB) + typed NeedsOcrError for scanned pages.
   # Bundled in core by maintainer decision (read_file is a core tool and
@@ -485,6 +490,7 @@ aiohttp-socks = false
 aiosqlite = false
 alibabacloud-dingtalk = false
 anthropic = false
+anyio = false
 asyncpg = false
 azure-identity = false
 boto3 = false
