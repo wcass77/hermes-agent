@@ -362,18 +362,16 @@ def test_staging_cleanup_requires_identical_archived_copy(tmp_path):
     assert not staging.parent.exists()
 
 
-def test_attachment_staging_disambiguates_duplicate_filenames(tmp_path):
-    sources = tmp_path / "sources"
-    sources.mkdir()
-    first = sources / "first.png"
-    second = sources / "second.png"
-    first.write_bytes(b"first image")
-    second.write_bytes(b"second image")
-
+def test_attachment_staging_disambiguates_duplicate_filenames(tmp_path, monkeypatch):
     class Client:
         def attachment_url(self, _inbox_id, _message_id, attachment_id):
-            return {"first": first, "second": second}[attachment_id].as_uri()
+            return "https://attachments.example/" + attachment_id
 
+    contents = {
+        "https://attachments.example/first": b"first image",
+        "https://attachments.example/second": b"second image",
+    }
+    monkeypatch.setattr(processor, "download_signed_attachment", lambda url, **_kwargs: contents[url])
     service = processor.Processor(Client(), tmp_path)
     message = {
         "inbox_id": "familyassistant@example.com",

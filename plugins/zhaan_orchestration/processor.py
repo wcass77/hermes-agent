@@ -8,12 +8,12 @@ import os
 import re
 import shutil
 import subprocess
-import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from hermes_state import SessionDB
+from plugins.agentmail_common import download_signed_attachment, unique_attachment_names
 
 from .agentmail import Client
 from .email_rules import (
@@ -90,21 +90,12 @@ class Processor:
     def _download_attachments(self, message: dict[str, Any]) -> list[str]:
         destination = self.workspace / "inbox" / "agentmail" / safe_name(str(message["message_id"]))
         paths = []
-        used_names: set[str] = set()
-        for attachment in message.get("attachments", []):
+        attachments = message.get("attachments", [])
+        for attachment, name in zip(attachments, unique_attachment_names(attachments), strict=True):
             destination.mkdir(parents=True, exist_ok=True)
-            name = safe_name(str(attachment.get("filename") or attachment["attachment_id"]))
-            stem, suffix = os.path.splitext(name)
-            candidate = name
-            number = 2
-            while candidate in used_names:
-                candidate = f"{stem}-{number}{suffix}"
-                number += 1
-            used_names.add(candidate)
-            path = destination / candidate
+            path = destination / name
             url = self.client.attachment_url(message["inbox_id"], message["message_id"], attachment["attachment_id"])
-            with urllib.request.urlopen(url, timeout=60) as response, path.open("wb") as output:
-                output.write(response.read())
+            path.write_bytes(download_signed_attachment(url, timeout=60, limit=None))
             paths.append(str(path.relative_to(self.workspace)))
         return paths
 

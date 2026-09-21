@@ -1,50 +1,15 @@
 from __future__ import annotations
 
-import base64
-import datetime as dt
-import hashlib
-import hmac
 import json
-import re
 from email.utils import parseaddr
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
 import yaml
+from plugins.agentmail_common import verify_svix
 
 from .store import Store
-
-
-def secret_bytes(value: str) -> bytes:
-    value = value.strip()
-    if value.startswith("whsec_"):
-        value = value[6:]
-    try:
-        return base64.b64decode(value, validate=True)
-    except Exception:
-        return value.encode()
-
-
-def verify_svix(body: bytes, headers: dict[str, str], secret: str, now: dt.datetime | None = None, tolerance: int = 300) -> str:
-    webhook_id = headers.get("svix-id", "")
-    timestamp = headers.get("svix-timestamp", "")
-    signatures = headers.get("svix-signature", "")
-    if not webhook_id or not timestamp or not signatures:
-        raise ValueError("missing Svix headers")
-    try:
-        sent = dt.datetime.fromtimestamp(int(timestamp), dt.timezone.utc)
-    except (ValueError, OverflowError) as exc:
-        raise ValueError("invalid Svix timestamp") from exc
-    now = now or dt.datetime.now(dt.timezone.utc)
-    if abs((now - sent).total_seconds()) > tolerance:
-        raise ValueError("stale Svix timestamp")
-    signed = webhook_id.encode() + b"." + timestamp.encode() + b"." + body
-    expected = base64.b64encode(hmac.new(secret_bytes(secret), signed, hashlib.sha256).digest()).decode()
-    candidates = [part.split(",", 1)[1] for part in signatures.split() if part.startswith("v1,")]
-    if not any(hmac.compare_digest(expected, candidate) for candidate in candidates):
-        raise ValueError("invalid Svix signature")
-    return webhook_id
 
 
 def allowed_senders(path: Path) -> set[str]:
