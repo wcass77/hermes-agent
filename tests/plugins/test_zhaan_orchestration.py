@@ -361,6 +361,51 @@ def test_staging_cleanup_requires_identical_archived_copy(tmp_path):
     assert not staging.exists()
     assert not staging.parent.exists()
 
+
+def test_attachment_staging_disambiguates_duplicate_filenames(tmp_path):
+    sources = tmp_path / "sources"
+    sources.mkdir()
+    first = sources / "first.png"
+    second = sources / "second.png"
+    first.write_bytes(b"first image")
+    second.write_bytes(b"second image")
+
+    class Client:
+        def attachment_url(self, _inbox_id, _message_id, attachment_id):
+            return {"first": first, "second": second}[attachment_id].as_uri()
+
+    service = processor.Processor(Client(), tmp_path)
+    message = {
+        "inbox_id": "familyassistant@example.com",
+        "message_id": "message",
+        "attachments": [
+            {"attachment_id": "first", "filename": "image.png"},
+            {"attachment_id": "second", "filename": "image.png"},
+        ],
+    }
+
+    attachments = service._download_attachments(message)
+
+    assert attachments == [
+        "inbox/agentmail/message/image.png",
+        "inbox/agentmail/message/image-2.png",
+    ]
+    assert (tmp_path / attachments[0]).read_bytes() == b"first image"
+    assert (tmp_path / attachments[1]).read_bytes() == b"second image"
+
+    for relative in attachments:
+        staged = tmp_path / relative
+        digest = hashlib.sha256(staged.read_bytes()).hexdigest()
+        archived = (
+            tmp_path / "documents" / "archive" / "sha256" / digest[:2]
+            / digest / staged.name
+        )
+        archived.parent.mkdir(parents=True)
+        shutil.copyfile(staged, archived)
+
+    service._remove_archived_staging_attachments(attachments)
+    assert not (tmp_path / "inbox" / "agentmail" / "message").exists()
+
 class FakeSessionDB:
     def __init__(self, *, fail_append=False):
         self.sessions = []

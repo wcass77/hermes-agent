@@ -90,9 +90,18 @@ class Processor:
     def _download_attachments(self, message: dict[str, Any]) -> list[str]:
         destination = self.workspace / "inbox" / "agentmail" / safe_name(str(message["message_id"]))
         paths = []
+        used_names: set[str] = set()
         for attachment in message.get("attachments", []):
             destination.mkdir(parents=True, exist_ok=True)
-            path = destination / safe_name(str(attachment.get("filename") or attachment["attachment_id"]))
+            name = safe_name(str(attachment.get("filename") or attachment["attachment_id"]))
+            stem, suffix = os.path.splitext(name)
+            candidate = name
+            number = 2
+            while candidate in used_names:
+                candidate = f"{stem}-{number}{suffix}"
+                number += 1
+            used_names.add(candidate)
+            path = destination / candidate
             url = self.client.attachment_url(message["inbox_id"], message["message_id"], attachment["attachment_id"])
             with urllib.request.urlopen(url, timeout=60) as response, path.open("wb") as output:
                 output.write(response.read())
