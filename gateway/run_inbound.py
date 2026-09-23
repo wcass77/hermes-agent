@@ -1870,6 +1870,7 @@ class GatewayInboundMixin:
         Description *and* local cache path are injected so the model understands the image without
         a tool call and can re-examine it with vision_analyze."""
         from tools.vision_tools import vision_analyze_tool
+        from tools.credential_files import to_agent_visible_cache_path
         from agent.memory_manager import sanitize_context
 
         analysis_prompt = (
@@ -1881,6 +1882,7 @@ class GatewayInboundMixin:
         )
         enriched_parts = []
         for path in image_paths:
+            agent_path = to_agent_visible_cache_path(path)
             try:
                 logger.debug("Auto-analyzing user image: %s", path)
                 result = json.loads(await vision_analyze_tool(image_url=path, user_prompt=analysis_prompt))
@@ -1889,20 +1891,20 @@ class GatewayInboundMixin:
                     note = (
                         f"[The user sent an image~ Here's what I can see:\n{description}]\n"
                         f"[If you need a closer look, use vision_analyze with "
-                        f"image_url: {path} ~]"
+                        f"image_url: {agent_path} ~]"
                     )
                 else:
                     note = (
                         "[The user sent an image but I couldn't quite see it "
                         "this time (>_<) You can try looking at it yourself "
-                        f"with vision_analyze using image_url: {path}]"
+                        f"with vision_analyze using image_url: {agent_path}]"
                     )
             except Exception as e:
                 logger.error("Vision auto-analysis error: %s", e)
                 note = (
                     f"[The user sent an image but something went wrong when I "
                     f"tried to look at it~ You can try examining it yourself "
-                    f"with vision_analyze using image_url: {path}]"
+                    f"with vision_analyze using image_url: {agent_path}]"
                 )
             enriched_parts.append(note)
         if not enriched_parts:
