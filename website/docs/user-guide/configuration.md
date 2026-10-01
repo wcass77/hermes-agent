@@ -867,6 +867,8 @@ tool_output:
 
 Separately from truncation, oversized tool *results* are spilled to disk rather than cut: the full output is saved under `$HERMES_HOME/cache/spillover/` and the in-context content is replaced by a preview plus the saved file's path (readable with `read_file` using `offset`/`limit`, or processable with `execute_code`). The generic per-result spillover threshold is 100,000 chars, scaled down automatically for small-context models.
 
+For remote terminal backends, spillover starts the task's sandbox when needed and verifies the recovery path before returning it. This also applies when a plugin produces a large result before the first terminal or file-tool call. A missing cache mount falls back to a copy in the sandbox's temporary directory; if sandbox startup or both writes fail, Hermes returns an inline preview instead of an inaccessible host path.
+
 MCP tool results (tools named `mcp_*`) spill at a tighter **50,000-char** default: MCP servers routinely return large un-paginated payloads (tool-discovery catalogs, batched executions) that would otherwise sit under the generic threshold and bloat context on every subsequent turn. Nothing is lost — the full result is preserved on disk. Override the threshold via:
 
 ```yaml

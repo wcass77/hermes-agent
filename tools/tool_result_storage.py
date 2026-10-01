@@ -194,7 +194,7 @@ def extract_persisted_path(content: str) -> str | None:
 
 def maybe_persist_tool_result(content: str, tool_name: str, tool_use_id: str, env=None,
                               config: BudgetConfig = DEFAULT_BUDGET,
-                              threshold: int | float | None = None) -> str:
+                              threshold: int | float | None = None, task_id: str | None = None) -> str:
     """Layer 2: persist an oversized result, return preview + path. ``threshold`` overrides
     ``config.resolve_threshold(tool_name)``; falls back to inline truncation when no write
     location succeeds."""
@@ -202,6 +202,13 @@ def maybe_persist_tool_result(content: str, tool_name: str, tool_use_id: str, en
         threshold = config.resolve_threshold(tool_name)
     if threshold == float("inf") or len(content) <= threshold:
         return content
+    # Plugin results can spill before the first terminal/file call has brought up the sandbox.
+    # Resolve the routed backend, not env=None alone, before advertising a recovery path.
+    from tools.terminal_scope import terminal_env
+    sandbox_required = (terminal_env("TERMINAL_ENV") or "local").strip().lower() != "local"
+    if env is None and sandbox_required:
+        from tools.terminal_tool_lifecycle import ensure_task_env
+        env = ensure_task_env(task_id)
     filename = _safe_result_filename(tool_use_id)
     preview, has_more = generate_preview(content, max_chars=config.preview_size)
 
@@ -212,10 +219,10 @@ def maybe_persist_tool_result(content: str, tool_name: str, tool_use_id: str, en
 
     # Always persist host-side first: cache/spillover is the single canonical home.
     host_path = _write_to_spillover(content, filename)
-    host_side = _is_host_side_env(env)
+    host_side = _is_host_side_env(env) and not (env is None and sandbox_required)
     if host_side and host_path is not None:
         return _persisted(host_path)
-    if not host_side:
+    if not host_side and env is not None:
         # Remote backend: reference the mounted/synced path when the sandbox can actually read
         # it, else write into the sandbox temp dir (containers without the spillover mount).
         visible = _sandbox_visible_spillover_path(host_path, env) if host_path else None
@@ -234,7 +241,7 @@ def maybe_persist_tool_result(content: str, tool_name: str, tool_use_id: str, en
 
 
 def enforce_turn_budget(tool_messages: list[dict], env=None,
-                        config: BudgetConfig = DEFAULT_BUDGET) -> list[dict]:
+                        config: BudgetConfig = DEFAULT_BUDGET, task_id: str | None = None) -> list[dict]:
     """Layer 3: persist the largest non-persisted results first until the turn's aggregate is
     under budget. Mutates the list in-place and returns it."""
     sizes = [len(msg.get("content", "")) for msg in tool_messages]
@@ -250,7 +257,7 @@ def enforce_turn_budget(tool_messages: list[dict], env=None,
         tool_use_id = tool_messages[idx].get("tool_call_id", f"budget_{idx}")
         replacement = maybe_persist_tool_result(
             content=content, tool_name=_BUDGET_TOOL_NAME, tool_use_id=tool_use_id,
-            env=env, config=config, threshold=0)
+            env=env, config=config, threshold=0, task_id=task_id)
         if replacement != content:
             total_size += len(replacement) - size
             tool_messages[idx]["content"] = replacement

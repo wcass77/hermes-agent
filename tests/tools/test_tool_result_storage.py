@@ -483,3 +483,62 @@ class TestRecoveryHint:
         assert msg.startswith(PERSISTED_OUTPUT_TAG)
         assert msg.endswith(PERSISTED_OUTPUT_CLOSING_TAG)
         assert "read_file" in msg
+
+
+@pytest.mark.parametrize("mounted", [True, False])
+@pytest.mark.parametrize("aggregate", [True, False])
+def test_first_remote_result_initializes_sandbox_before_advertising_path(monkeypatch, mounted, aggregate):
+    """First plugin results and aggregate spills must reference the backend's readable path."""
+    from tools.terminal_scope import set_terminal_scope, reset_terminal_scope
+    from tools.tool_result_storage import extract_persisted_path
+
+    token = set_terminal_scope({"TERMINAL_ENV": "docker"})
+    env = MagicMock()
+    env.get_temp_dir.return_value = "/tmp"
+    env.execute.side_effect = ([{"returncode": 0}] if mounted else [{"returncode": 1}, {"returncode": 0}])
+    ensure = MagicMock(return_value=env)
+    monkeypatch.setattr("tools.terminal_tool_lifecycle.ensure_task_env", ensure)
+    content = "first plugin result\n" * 10_000
+    config = BudgetConfig(turn_budget=30_000)
+    try:
+        if aggregate:
+            messages = [{"role": "tool", "tool_call_id": "first", "content": content}]
+            enforce_turn_budget(messages, config=config)
+            result = messages[0]["content"]
+        else:
+            result = maybe_persist_tool_result(content, "plugin_context", "first", config=config)
+        ensure.assert_called_once_with(None)
+        path = extract_persisted_path(result)
+        assert path is not None
+        assert path.startswith("/root/.hermes/cache/spillover/" if mounted else "/tmp/hermes-results/")
+        assert (get_spillover_dir() / "first.txt").read_text() == content
+        if not mounted:
+            assert env.execute.call_args.kwargs["stdin_data"] == content
+    finally:
+        reset_terminal_scope(token)
+
+
+@pytest.mark.parametrize("backend,size,available", [("docker", 10, True), ("local", 200_000, True),
+                                                    ("docker", 200_000, False)])
+def test_lazy_spill_skips_small_and_local_results_and_handles_startup_failure(monkeypatch, backend, size, available):
+    from tools.terminal_scope import set_terminal_scope, reset_terminal_scope
+    from tools.tool_result_storage import extract_persisted_path
+
+    token = set_terminal_scope({"TERMINAL_ENV": backend})
+    ensure = MagicMock(return_value=None)
+    monkeypatch.setattr("tools.terminal_tool_lifecycle.ensure_task_env", ensure)
+    content = "x" * size
+    try:
+        result = maybe_persist_tool_result(content, "plugin_context", "first")
+        if not available:
+            ensure.assert_called_once_with(None)
+            assert extract_persisted_path(result) is None
+            assert "Full output could not be saved to sandbox" in result
+        else:
+            ensure.assert_not_called()
+            if size < DEFAULT_RESULT_SIZE_CHARS:
+                assert result == content
+            else:
+                assert extract_persisted_path(result) == str(get_spillover_dir() / "first.txt")
+    finally:
+        reset_terminal_scope(token)
