@@ -197,6 +197,8 @@ dependencies = [
 anthropic = ["anthropic==0.87.0"]  # CVE-2026-34450, CVE-2026-34452
 # Web search backends — each only loaded when the user picks it as their
 # search provider (configured via `hermes tools` or config.yaml).
+# Selected on Intel Air; explicit extra keeps locked syncs from pruning search.
+ddgs = ["ddgs==9.16.0"]
 exa = ["exa-py==2.10.2"]
 firecrawl = ["firecrawl-py==4.17.0"]
 parallel-web = ["parallel-web==0.4.2"]
@@ -506,6 +508,7 @@ dingtalk-stream = false
 discord-py = false
 edge-tts = false
 elevenlabs = false
+ddgs = false
 exa-py = false
 fal-client = false
 fastapi = false
