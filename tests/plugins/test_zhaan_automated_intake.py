@@ -10,7 +10,8 @@ from plugins.zhaan_orchestration.processor import Processor
 # The only executable is the generated fake agent in tmp_path; no live Hermes.
 @pytest.mark.live_system_guard_bypass
 @pytest.mark.parametrize('automated', [False, True])
-def test_real_processor_archives_automatic_source_without_reply(tmp_path, automated):
+@pytest.mark.parametrize('matched_rule', [False, True])
+def test_real_processor_archives_automatic_source_without_reply(tmp_path, automated, matched_rule):
     workspace=tmp_path/'workspace';workspace.mkdir()
     command=tmp_path/'fake-hermes'
     command.write_text('''#!/usr/bin/env python3
@@ -30,6 +31,30 @@ print('Reference archived; no action required.')
     message={'inbox_id':'in','thread_id':'thread','message_id':'msg',
              'from':'participant@example.test','subject':'Fwd: School notice',
              'text':'Untrusted source body', 'attachments':[]}
+    if matched_rule:
+        rules = workspace / 'email-intake' / 'rules'
+        rules.mkdir(parents=True)
+        (rules / 'school-learning.md').write_text("""---
+schema_version: 1
+id: school-learning
+name: School learning summary
+enabled: true
+priority: 110
+match:
+  original_from:
+    addresses: [teacher@example.test]
+  original_subject:
+    regex: '^School learning$'
+source: school-email
+people: [child]
+reply:
+  include_rule_link: true
+---
+Post the teacher learning notes as a standing reference summary.
+""", encoding="utf-8")
+        message['forwarded_message'] = {
+            'from': 'teacher@example.test', 'subject': 'School learning',
+        }
     if automated:
         message['headers']={'X-Personal-OS-Routing-Version':'1','X-Personal-OS-Routing-Operation':'a'*64}
     class Client:
@@ -43,6 +68,12 @@ print('Reference archived; no action required.')
     service.process(item,'intake-test',prepared)
     prompt=(workspace/'captured-prompt.txt').read_text()
     assert 'UNTRUSTED_EMAIL_CONTENT' in prompt
+    assert (prepared.decision.rule is not None) == matched_rule
+    assert ('Exception to reference-only quiet archival' in prompt) == (automated and matched_rule)
+    assert ('standing reference summary' in prompt) == matched_rule
+    if not automated:
+        footer = client.replies[0][-1]
+        assert ('School learning summary' in footer) == matched_rule
     assert len(client.replies)==(0 if automated else 1)
     if automated:
         assert 'If urgent or actionable' in prompt

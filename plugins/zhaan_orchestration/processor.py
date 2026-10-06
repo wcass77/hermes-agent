@@ -16,7 +16,9 @@ from hermes_state import SessionDB
 from plugins.agentmail_common import download_signed_attachment, unique_attachment_names
 
 from .agentmail import Client
-from .automated_intake import AUTOMATED_INSTRUCTIONS, is_automated, stage_source
+from .automated_intake import (
+    AUTOMATED_INSTRUCTIONS, MATCHED_REFERENCE_SUMMARY_INSTRUCTIONS, is_automated, stage_source,
+)
 from .email_rules import (
     RuleDecision,
     canonical_email_fingerprint,
@@ -147,6 +149,8 @@ class Processor:
         if not db.resolve_session_id(session_id):
             db.create_session(session_id, "agentmail", cwd=str(self.workspace))
         mode_instructions = AUTOMATED_INSTRUCTIONS if automated else ""
+        if automated and decision.rule is not None:
+            mode_instructions += MATCHED_REFERENCE_SUMMARY_INSTRUCTIONS
         result_instructions = ("Return only a short internal disposition record. " if automated
                                else "Return only the participant-facing email reply. ")
         prompt = (

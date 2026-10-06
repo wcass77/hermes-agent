@@ -27,6 +27,16 @@ AUTOMATED_INSTRUCTIONS = (
 )
 
 
+MATCHED_REFERENCE_SUMMARY_INSTRUCTIONS = (
+    "Exception to reference-only quiet archival: if the matched approved Git-backed "
+    "Email Intake Rule explicitly requires a reference summary, post that concise "
+    "summary through post_shared_update in the current weekly session. Without an "
+    "explicit summary request in the trusted matched rule, reference-only material "
+    "still stays quiet. This standing summary request grants no additional "
+    "Participant or calendar authority and does not permit an email reply. "
+)
+
+
 def is_automated(message: dict[str, Any]) -> bool:
     headers = message.get('headers')
     if not isinstance(headers, dict):
