@@ -524,13 +524,16 @@ def build_native_content_parts(
     ``Runner._enrich_message_with_vision``. Returns ``(content_parts, skipped)``;
     ``skipped`` holds unreadable local paths (URLs are never skipped).
     """
+    from tools.credential_files import to_agent_visible_cache_path
+
     skipped: List[str] = []
     attached: List[Tuple[str, str]] = []  # (url, hint)
     for raw_path in image_paths:
         p = Path(raw_path)
         data_url = _file_to_data_url(p) if p.exists() and p.is_file() else None
         if data_url:
-            attached.append((data_url, f"[Image attached at: {raw_path}]"))
+            agent_path = to_agent_visible_cache_path(str(raw_path))
+            attached.append((data_url, f"[Image attached at: {agent_path}]"))
         else:
             skipped.append(str(raw_path))
     attached += [(u, f"[Image attached: {u}]") for u in ((u or "").strip() for u in image_urls or []) if u]

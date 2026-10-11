@@ -267,6 +267,37 @@ def _png_bytes() -> bytes:
 
 
 class TestBuildNativeContentParts:
+    def test_cache_hint_uses_active_backend_without_changing_pixels(self, tmp_path, monkeypatch):
+        from hermes_constants import set_hermes_home_override, reset_hermes_home_override
+        from tools.terminal_scope import set_terminal_scope, reset_terminal_scope
+
+        home = tmp_path / "profile"
+        img = home / "cache/images/scan.png"
+        img.parent.mkdir(parents=True)
+        pixels = _png_bytes()
+        img.write_bytes(pixels)
+        home_token = set_hermes_home_override(str(home))
+        try:
+            for backend, visible in [("docker", "/root/.hermes/cache/images/scan.png"),
+                                     ("local", str(img))]:
+                terminal_token = set_terminal_scope({"TERMINAL_ENV": backend})
+                try:
+                    parts, skipped = build_native_content_parts(
+                        "archive this", [str(img), str(home / "missing.png")],
+                        ["https://example.com/image.png"],
+                    )
+                finally:
+                    reset_terminal_scope(terminal_token)
+                assert skipped == [str(home / "missing.png")]
+                assert parts[0]["text"] == (
+                    f"archive this\n\n[Image attached at: {visible}]\n"
+                    "[Image attached: https://example.com/image.png]"
+                )
+                assert base64.b64decode(parts[1]["image_url"]["url"].split(",", 1)[1]) == pixels
+                assert parts[2]["image_url"]["url"] == "https://example.com/image.png"
+        finally:
+            reset_hermes_home_override(home_token)
+
     def test_text_then_image(self, tmp_path: Path):
         img = tmp_path / "cat.png"
         img.write_bytes(_png_bytes())
