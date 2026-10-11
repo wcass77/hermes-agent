@@ -537,3 +537,32 @@ def test_order_is_ignored_for_content_search():
 
     assert result.error is None
     assert result.matches
+
+
+@pytest.mark.parametrize('order', ['discovery', 'modified'])
+@pytest.mark.parametrize('roots', ['/', '//', '/repo/..', '../..', ['/repo', '/']])
+def test_failed_filesystem_root_search_explains_scope_and_rejects_partial_results(order, roots):
+    env = RecordingEnvironment(rg_output='/repo/partial.py\n', rg_code=2)
+    result = ShellFileOperations(env)._search_files('*.py', roots, 50, 0, order)
+
+    assert 'filesystem-root' in result.error.lower()
+    assert 'exit 2' in result.error
+    assert 'narrower directory' in result.error
+    assert result.files == []
+    assert result.total_count == 0
+    assert len(env.rg_commands) == 1
+
+
+@pytest.mark.parametrize('order', ['discovery', 'modified'])
+@pytest.mark.parametrize('code,output,expected_count', [
+    (0, '/repo/one.py\n', 1), (1, '', 0),
+    (124, '/repo/one.py\n', 1), (141, '/repo/one.py\n/repo/two.py\n', 2),
+])
+def test_root_search_retains_success_and_bounded_result_classification(order, code, output, expected_count):
+    env = RecordingEnvironment(rg_output=output, rg_code=code)
+    result = ShellFileOperations(env)._search_files('*.py', '/', 1, 0, order)
+
+    assert result.error is None
+    assert result.total_count == expected_count
+    assert result.truncated == (code in {124, 141})
+    assert (result.limit_reason == 'search_timeout') == (code == 124)

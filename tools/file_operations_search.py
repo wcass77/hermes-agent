@@ -787,6 +787,17 @@ class SearchMixin:
                 for f in all_files]
         bounded_sigpipe = result.exit_code == 141 and len(all_files) >= fetch_limit
         if result.exit_code not in {0, 1, 124} and not bounded_sigpipe:
+            from tools.environments.local import LocalEnvironment
+
+            path_module = os.path if isinstance(self.env, LocalEnvironment) else posixpath
+            normalized_roots = [
+                _normalized_filename_search_root(self.env, root, self.cwd) for root in roots]
+            if any(path_module.dirname(root) == root for root in normalized_roots):
+                return SearchResult(error=(
+                    f"Filesystem-root filename search could not complete (ripgrep exit {result.exit_code}). "
+                    "System or unreadable directories can prevent complete discovery. "
+                    "Search a narrower directory; in a Docker sandbox, try /workspace. "
+                    "Partial matches are not returned as a complete result."))
             if order == "modified":
                 return SearchResult(error=(
                     "Exact modification-time order failed; ripgrep 14+ is "
