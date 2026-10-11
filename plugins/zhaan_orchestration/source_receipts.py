@@ -133,7 +133,7 @@ def verify_catalog(workspace: Path, root: Path, binding: dict[str, Any]) -> dict
             continue
         relative = Path(archive[1])
         expected = Path('documents/archive/sha256') / digest[1][:2] / digest[1]
-        if relative.parent != expected or relative.name != 'personal-os-source-email.json':
+        if relative.parent != expected or relative.suffix != '.json':
             continue
         path = workspace / relative
         if path.resolve() != path or not path.is_file():
