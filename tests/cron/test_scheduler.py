@@ -2459,7 +2459,7 @@ class TestCronContinuableSurfaceInChannel:
         return mock_cfg
 
     def _run_inchannel_delivery(self, extra, adapter, *, mirror_ok=True, origin=None,
-                                attach_to_session=True):
+                                attach_to_session=True, platform_name="slack"):
         """Drive _deliver_result down the live-adapter path for a Slack
         channel-origin job with the given ``extra`` config. Returns the
         _open_continuable_cron_thread mock and the mirror_to_session mock."""
@@ -2467,6 +2467,8 @@ class TestCronContinuableSurfaceInChannel:
         from concurrent.futures import Future
 
         mock_cfg = self._slack_cfg(extra)
+        platform = Platform(platform_name)
+        mock_cfg.platforms = {platform: next(iter(mock_cfg.platforms.values()))}
 
         loop = MagicMock()
         loop.is_running.return_value = True
@@ -2487,7 +2489,7 @@ class TestCronContinuableSurfaceInChannel:
             # Channel origin: no thread_id (flat channel message scheduled it).
             # Carries the scheduling user's id — the in_channel seed must key
             # the flat channel session to THIS user (see build_session_key).
-            "origin": origin or {"platform": "slack", "chat_id": "C123", "user_id": "U_HUMAN"},
+            "origin": origin or {"platform": platform_name, "chat_id": "C123", "user_id": "U_HUMAN"},
             # Opt into the continuable mirror (parameterized: the seed must
             # NOT depend on this — see the no-attach regression test).
             "attach_to_session": attach_to_session,
@@ -2500,7 +2502,7 @@ class TestCronContinuableSurfaceInChannel:
              patch("gateway.mirror.mirror_to_session", return_value=mirror_ok) as mirror_mock:
             _deliver_result(
                 job, "Here is today's brief.",
-                adapters={Platform.SLACK: adapter}, loop=loop,
+                adapters={platform: adapter}, loop=loop,
             )
         return open_thread_mock, mirror_mock
 
@@ -2524,6 +2526,35 @@ class TestCronContinuableSurfaceInChannel:
         if with_store:
             adapter._session_store = MagicMock()
         return adapter
+
+    def test_discord_flat_delivery_seeds_owner_and_no_synthetic_thread(self):
+        from plugins.platforms.discord.adapter import DiscordAdapter
+        assert DiscordAdapter.supports_inchannel_continuable is True
+        from gateway.session import SessionSource, build_session_key
+        from gateway.config import Platform
+        adapter = self._slack_adapter()
+        with patch("cron.scheduler_delivery._seed_cron_thread_session") as thread_seed:
+            open_thread, mirror = self._run_inchannel_delivery(
+                {"cron_continuable_surface": "in_channel"}, adapter, platform_name="discord")
+        open_thread.assert_not_called()
+        thread_seed.assert_not_called()
+        source = adapter._session_store.get_or_create_session.call_args[0][0]
+        inbound = SessionSource(platform=Platform.DISCORD, chat_id="C123", chat_type="group", user_id="U_HUMAN")
+        assert build_session_key(source) == build_session_key(inbound)
+        assert mirror.called
+
+    def test_discord_missing_owner_does_not_seed_orphan_group(self):
+        adapter = self._slack_adapter()
+        with patch("cron.scheduler_delivery._seed_cron_channel_session") as seed:
+            self._run_inchannel_delivery({"cron_continuable_surface": "in_channel"},
+                adapter, platform_name="discord", origin={"platform": "discord", "chat_id": "C123"})
+        seed.assert_not_called()
+        adapter._session_store.get_or_create_session.assert_not_called()
+
+    def test_discord_default_preserves_thread_behavior(self):
+        adapter = self._slack_adapter()
+        open_thread, _ = self._run_inchannel_delivery({}, adapter, platform_name="discord")
+        open_thread.assert_called_once()
 
     def test_in_channel_skips_thread_open(self):
         """G2: in_channel mode must NOT open a handoff thread."""

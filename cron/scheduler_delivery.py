@@ -1372,7 +1372,8 @@ def _seed_live_delivery_sessions(t: _TargetDelivery, delivered_message_id) -> No
                 job["id"], t.platform_name, t.chat_id)
         # Companion THREAD seed: a reply in the brief's own thread keys to (chat, thread=<ts>),
         # which the flat seed never touches. Seed it too so BOTH reply surfaces continue the job.
-        if delivered_message_id:
+        if delivered_message_id and t.platform_name != "discord":
+            # Discord thread IDs are channel IDs, not the parent message ID.
             _seed_cron_thread_session(
                 job, t.runtime_adapter, t.platform_name, t.chat_id, str(delivered_message_id),
                 t.mirror_text,
@@ -1586,6 +1587,10 @@ def _prepare_target_delivery(
     # seed can create a resolvable session (_inchannel_seed_allowed).
     inchannel_continuable = origin_target or (
         mirror_this_target and _inchannel_seed_allowed(is_dm=is_dm_target, user_id=origin_user_id))
+
+    if platform_name == "discord" and not _inchannel_seed_allowed(is_dm=is_dm_target, user_id=origin_user_id):
+        # Guild replies are owner scoped; never seed an orphan cron identity.
+        inchannel_continuable = False
 
     # Plugin platform names create dynamic members via Platform._missing_().
     try:

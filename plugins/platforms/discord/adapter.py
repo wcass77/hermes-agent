@@ -993,6 +993,9 @@ from plugins.platforms.discord.adapter_media import DiscordMediaMixin
 class DiscordAdapter(DiscordMediaMixin, BasePlatformAdapter):
     """Discord bot adapter: guild/DM messages, threads, slash commands, button approvals, reactions."""
 
+    # Flat guild replies use owner-scoped group sessions, matching the cron seed.
+    supports_inchannel_continuable = True
+
     MAX_MESSAGE_LENGTH = 2000
     _SPLIT_THRESHOLD = 1900  # near the 2000-char split point
     supports_code_blocks = True  # Discord markdown renders fenced code blocks natively
