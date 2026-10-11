@@ -117,11 +117,13 @@ def test_descriptive_archive_still_requires_safe_same_source(tmp_path, mismatch)
             data['message_id'] = '<other@example.test>'
         encoded = json.dumps(data).encode()
         digest = hashlib.sha256(encoded).hexdigest()
-        replacement = path.parent.parent / digest / path.name
-        replacement.parent.mkdir()
+        replacement = workspace / "documents/archive/sha256" / digest[:2] / digest / path.name
+        replacement.parent.mkdir(parents=True)
         replacement.write_bytes(encoded)
         catalog.write_text(catalog.read_text().replace(
-            hashlib.sha256(path.read_bytes()).hexdigest(), digest))
+            hashlib.sha256(path.read_bytes()).hexdigest(), digest).replace(
+            str(path.relative_to(workspace)).replace(hashlib.sha256(path.read_bytes()).hexdigest(), digest),
+            str(replacement.relative_to(workspace))))
     else:
         replacement = {'outside_bucket': 'documents/other/school-redacted.json',
                        'traversal': str(path.relative_to(workspace).parent / '..' / path.parent.name / path.name),
