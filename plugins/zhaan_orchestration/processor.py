@@ -16,6 +16,7 @@ from hermes_state import SessionDB
 from plugins.agentmail_common import download_signed_attachment, unique_attachment_names
 
 from .agentmail import Client
+from .source_receipts import preserve_source, complete_source
 from .automated_intake import (
     AUTOMATED_INSTRUCTIONS, MATCHED_REFERENCE_SUMMARY_INSTRUCTIONS, is_automated, stage_source,
 )
@@ -144,7 +145,10 @@ class Processor:
         automated = is_automated(message)
         if automated:
             source = stage_source(message, self.workspace / "inbox" / "agentmail" / safe_name(str(message['message_id'])))
-            attachments.append(str(source.relative_to(self.workspace)))
+            private_sources = self.workspace.parent / "state" / "automated-intake-sources"
+            private_sources.parent.mkdir(mode=0o700, exist_ok=True)
+            source_binding = preserve_source(private_sources, source, item)
+            source_relative = str(source.relative_to(self.workspace))
         db = SessionDB()
         if not db.resolve_session_id(session_id):
             db.create_session(session_id, "agentmail", cwd=str(self.workspace))
@@ -174,7 +178,7 @@ class Processor:
                 "message_id": message.get("message_id"), "from": message.get("from"),
                 "subject": message.get("subject"), "text": message.get("text") or message.get("extracted_text"),
                 "html": message.get("html") if not (message.get("text") or message.get("extracted_text")) else None,
-                "attachment_paths": attachments,
+                "attachment_paths": attachments + ([source_relative] if automated else []),
             }, ensure_ascii=False)
         )
         manifest = self.workspace.parent / "state" / "agentmail-attachments" / f"{safe_name(str(item['event_id']))}.json"
@@ -192,7 +196,12 @@ class Processor:
         if not reply:
             raise RuntimeError("Hermes returned an empty email reply")
         if automated:
+            complete_source(self.workspace, private_sources, source_binding)
             self._remove_archived_staging_attachments(attachments)
+            # The retained original was verified independently of the derivative.
+            if source.resolve() != source:
+                raise RuntimeError("automated source staging path became unsafe")
+            source.unlink()
             manifest.unlink(missing_ok=True)
             return
         reply = f"{reply}\n\n{self._routing_footer(decision)}"

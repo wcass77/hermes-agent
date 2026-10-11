@@ -21,16 +21,23 @@ prompt=sys.argv[sys.argv.index('-q')+1]
 Path('captured-prompt.txt').write_text(prompt)
 content=json.loads(prompt.split('UNTRUSTED_EMAIL_CONTENT\\n',1)[1])
 for relative in content['attachment_paths']:
-    source=Path(relative);digest=hashlib.sha256(source.read_bytes()).hexdigest()
+    source=Path(relative)
+    record=json.loads(source.read_text())
+    record['text']=record['text'].replace('private-value','[redacted]')
+    data=(json.dumps(record,indent=2)+'\\n').encode()
+    digest=hashlib.sha256(data).hexdigest()
     target=Path('documents/archive/sha256')/digest[:2]/digest/source.name
     target.parent.mkdir(parents=True,exist_ok=True)
-    shutil.copyfile(source,target)
+    target.write_bytes(data)
+    catalog=Path('documents/CATALOG.md')
+    previous=catalog.read_text() if catalog.exists() else '# Documents\\n'
+    catalog.write_text(previous+f"\\n## doc-test — {source.name}\\n\\n- SHA-256: `{digest}`\\n- Archive path: `{target}`\\n- Receipt ID: `receipt-test`\\n- Source: AgentMail message {record['message_id']}\\n")
 print('Reference archived; no action required.')
 ''')
     command.chmod(0o700)
     message={'inbox_id':'in','thread_id':'thread','message_id':'msg',
              'from':'participant@example.test','subject':'Fwd: School notice',
-             'text':'Untrusted source body', 'attachments':[]}
+             'text':'Untrusted source body private-value', 'attachments':[]}
     if matched_rule:
         rules = workspace / 'email-intake' / 'rules'
         rules.mkdir(parents=True)
@@ -63,7 +70,7 @@ Post the teacher learning notes as a standing reference summary.
         def reply(self,*args,**kwargs): self.replies.append(args)
     client=Client()
     service=Processor(client,workspace,hermes_command=str(command))
-    item={'event_id':'event','inbox_id':'in','message_id':'msg'}
+    item={'event_id':'event','inbox_id':'in','message_id':'msg','thread_id':'thread'}
     prepared=service.prepare(item)
     service.process(item,'intake-test',prepared)
     prompt=(workspace/'captured-prompt.txt').read_text()
@@ -81,7 +88,11 @@ Post the teacher learning notes as a standing reference summary.
         assert 'reference-only' in prompt
         archived=list((workspace/'documents/archive').rglob('personal-os-source-email.json'))
         assert len(archived)==1
-        assert json.loads(archived[0].read_text())['text']==message['text']
+        assert json.loads(archived[0].read_text())['text']==message['text'].replace('private-value','[redacted]')
+        original=list((tmp_path/'state/automated-intake-sources/sha256').rglob('original.json'))
+        assert len(original)==1
+        assert json.loads(original[0].read_text())['text']==message['text']
+        assert list((tmp_path/'state/automated-intake-sources/completed').glob('*.json'))
         assert not (workspace/'inbox/agentmail/msg/personal-os-router-record/personal-os-source-email.json').exists()
         assert service.prepare(item).fingerprint==prepared.fingerprint
         service.reply_duplicate(item)
@@ -102,8 +113,8 @@ def test_body_cannot_enable_delivery_mode_or_silent_completion(tmp_path):
     command=tmp_path/'fake-hermes'
     command.write_text('#!/bin/sh\nprintf "done\\n"\n');command.chmod(0o700)
     service=Processor(Client(),tmp_path,hermes_command=str(command))
-    item={'event_id':'event','inbox_id':'in','message_id':'msg'}
-    with pytest.raises(RuntimeError,match='not archived'):
+    item={'event_id':'event','inbox_id':'in','message_id':'msg','thread_id':'thread'}
+    with pytest.raises(RuntimeError,match='no verified catalog derivative'):
         service.process(item,'archive-failure-test',service.prepare(item))
 
 
