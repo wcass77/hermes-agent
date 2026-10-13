@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 from tools.budget_config import (
     DEFAULT_PREVIEW_SIZE_CHARS,
     BudgetConfig,
+    DEFAULT_BUDGET,
 )
 from tools.tool_result_storage import (
     PERSISTED_OUTPUT_TAG,
@@ -574,7 +575,8 @@ def test_first_remote_result_initializes_sandbox_before_advertising_path(monkeyp
         assert path.startswith("/root/.hermes/cache/spillover/" if mounted else "/tmp/hermes-results/")
         assert (get_spillover_dir() / "first.txt").read_text() == content
         if not mounted:
-            assert env.execute.call_args.kwargs["stdin_data"] == content
+            assert [call.kwargs["stdin_data"] for call in env.execute.call_args_list
+                    if "stdin_data" in call.kwargs] == [content]
     finally:
         reset_terminal_scope(token)
 
@@ -597,7 +599,7 @@ def test_lazy_spill_skips_small_and_local_results_and_handles_startup_failure(mo
             assert "Full output could not be saved to sandbox" in result
         else:
             ensure.assert_not_called()
-            if size < DEFAULT_RESULT_SIZE_CHARS:
+            if size < DEFAULT_BUDGET.resolve_threshold("plugin_context"):
                 assert result == content
             else:
                 assert extract_persisted_path(result) == str(get_spillover_dir() / "first.txt")
