@@ -7,11 +7,8 @@ name = "hermes-agent"
 version = "0.0.0"
 description = "The self-improving AI agent — creates skills from experience, improves them during use, and runs anywhere"
 readme = "README.md"
-# 3.14 is the newest python we know we have wheels for.
-# we *only* support 3.14, BUT we need to allow old hermes installs on <3.14
-# to get thru their update step on old python.
-# Shortly after they do, we update to our latest python.
-# See tests/compat/README.md for the updater contract this keeps.
+# This externally maintained personal fork retains its tested Python 3.11 runtime.
+# Keep normal core dependencies available below 3.14 rather than shipping an updater-only environment.
 requires-python = ">=3.11,<3.14"
 authors = [{ name = "Nous Research" }]
 license = "MIT"
