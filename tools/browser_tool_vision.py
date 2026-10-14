@@ -72,6 +72,8 @@ def _native_vision_result(
     native_result = _build_native_vision_tool_result(image_url=str(screenshot_path), question=question,
                                                      image_data_url=data_url,
                                                      image_size_bytes=screenshot_path.stat().st_size)
+    # Vision-capable providers receive content only, without meta/text_summary.
+    native_result["content"].append({"type": "text", "text": f"Screenshot path: {screenshot_path}"})
     meta = native_result.setdefault("meta", {})
     meta["screenshot_path"] = str(screenshot_path)
     if lp_fallback_warning:
