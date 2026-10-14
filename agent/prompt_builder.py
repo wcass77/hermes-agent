@@ -1532,7 +1532,7 @@ def _build_skills_system_prompt_inner(
             _SKILLS_PROMPT_CACHE.move_to_end(cache_key)
             return cached
 
-    def hides(skill_name: str, conditions: dict) -> bool:
+    def hides(skill_name: str, frontmatter_name: str, conditions: dict) -> bool:
         """Per-build visibility rule shared by every skill source (snapshot, scan, project, external)."""
         return (skill_name in disabled
                 or (allowed is not None and frontmatter_name not in allowed and skill_name not in allowed)
@@ -1567,7 +1567,7 @@ def _build_skills_system_prompt_inner(
             category_descriptions.setdefault(cat, cat_desc)
     resolved = resolve_skill_catalog([
         {**entry, "name": _entry_name(entry), "path": entry["root"] / entry["rel"],
-         "visible": ok and not hides(entry.get("skill_name") or "", entry.get("conditions") or {})}
+         "visible": ok and not hides(entry.get("skill_name") or "", _entry_name(entry), entry.get("conditions") or {})}
         for entry, ok in rows])
     visible_entries = [e for e in resolved
                        if e["visible"] and e["status"] != "shadowed" and not is_disabled_entry(e, disabled)]
