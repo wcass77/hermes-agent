@@ -1068,6 +1068,13 @@ class DockerEnvironment(BaseEnvironment):
         passthrough_env, unset_names = self._resolve_passthrough_env()
         return _name_only_env_args(passthrough_env), tuple(sorted(unset_names)), dict(passthrough_env)
 
+    def _snapshot_excluded_passthrough_names(self) -> tuple[str, ...]:
+        # Command-bound plugin values must never survive in the saved shell state,
+        # including standalone gateways without multiplex/profile passthrough.
+        from tools.environments.command_env import terminal_command_env
+        return tuple(sorted(set(super()._snapshot_excluded_passthrough_names())
+                            | set(terminal_command_env())))
+
     def _run_bash(self, cmd_string: str, *, login: bool = False,
                   timeout: int = 120,
                   stdin_data: str | None = None) -> subprocess.Popen:
@@ -1092,6 +1099,11 @@ class DockerEnvironment(BaseEnvironment):
         elif self._profile_scoped_passthrough:
             runtime_args, unset_names, env_values = self._build_runtime_env_args_with_unsets()
             cmd.extend(runtime_args)
+        if not login:
+            from tools.environments.command_env import terminal_command_env
+            for name, value in terminal_command_env().items():
+                cmd.extend(["-e", name])
+                env_values[name] = value
         cmd += [self._container_id, *bash_argv(prepend_unset(cmd_string, unset_names), login)]
 
         client_env = self._docker_client_env(env_values)

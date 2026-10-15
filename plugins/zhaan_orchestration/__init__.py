@@ -127,5 +127,5 @@ def register(ctx) -> None:
         schema=RETURN_ARCHIVED_DOCUMENT_SCHEMA, handler=return_archived_document_tool,
         description="Return a cataloged family document through the current conversation.", emoji="📎",
     )
-    if _is_gateway_process():
+    if _is_gateway_process() and not _plugin_entry().get("native_agentmail"):
         _start_server()
