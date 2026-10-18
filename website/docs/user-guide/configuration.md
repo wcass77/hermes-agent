@@ -237,6 +237,21 @@ terminal:
   daytona_image: "nousresearch/hermes-sandbox:desktop"               # Container image for Daytona backend
 ```
 
+Oversized foreground terminal results keep a head/tail preview. The default
+`tool_output.max_bytes` is 50,000; terminal capture currently counts characters
+despite that setting's name. The returned `full_output_path` lets the agent
+inspect omitted output without repeating the command. Docker receives an
+already-redacted copy inside the originating container, readable by both
+terminal and file tools, without exposing the host capture directory.
+
+Saved captures retain at most 5,000,000 characters. An incomplete capture is
+marked with `output_capture_complete: false`. Capture files may be pruned after
+seven days or disappear when their container is removed. File-tool reads have
+separate line/page limits; use bounded terminal parsing or character slices for
+large JSON or long lines. If publishing the capture fails, the result reports
+that retrieval is unavailable and omits the path; the original exit status is
+preserved.
+
 `terminal.temp_dir` controls where Hermes puts session temp artifacts on the
 local backend — background-process logs/pid/exit files, code-execution
 sandboxes, and spilled tool results. When it's empty (the default), Hermes

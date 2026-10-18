@@ -84,9 +84,14 @@ class _BoundedOutputCollector:
             try:
                 self._spill_fh.close()
             except OSError:
-                pass
+                self._spill_capped = True
             self._spill_fh = None
             return str(self._spill_path)
+
+    @property
+    def spill_complete(self) -> bool:
+        """False when the capture ceiling or a disk error stopped the spill."""
+        return not self._spill_capped
 
     @property
     def buffered_chars(self) -> int:
@@ -203,6 +208,7 @@ def _finalize_wait_result(collector: _BoundedOutputCollector, rendered: str, ret
     if spill:
         result["output_total_chars"] = collector.total_chars
         result["full_output_path"] = spill
+        result["output_capture_complete"] = collector.spill_complete
     return result
 
 

@@ -167,7 +167,8 @@ def _failure_hint(command: str, returncode: int, output: str, exit_note) -> Opti
     return None
 
 
-def _redact_spill_file(path, total_chars, command) -> list[tuple[str, Any]]:
+def _redact_spill_file(path, total_chars, command, *, env=None,
+                       capture_complete=True) -> list[tuple[str, Any]]:
     """Spill handle so the model can read the omitted middle instead of
     re-running. The collector wrote it raw; redact it with the same pass so no
     secret persists unmasked on disk. On failure drop the handle (and file)."""
@@ -178,6 +179,12 @@ def _redact_spill_file(path, total_chars, command) -> list[tuple[str, Any]]:
         from tools.ansi_strip import strip_ansi
         from tools.spill_safety import write_text_exclusive
         raw_spill = Path(path).read_text(encoding="utf-8-sig", errors="replace")
+        marker = getattr(env, "_cwd_marker", None)
+        if isinstance(marker, str) and marker:
+            from tools.environments.base_session_env import _split_cwd_marker
+            split = _split_cwd_marker(raw_spill, marker)
+            if split is not None:
+                raw_spill = split[1]
         # lstat-checked unlink + exclusive create: the redacted copy can't
         # be diverted through a symlink planted since the collector's write.
         write_text_exclusive(Path(path), redact_terminal_output(strip_ansi(raw_spill), command),
@@ -186,11 +193,23 @@ def _redact_spill_file(path, total_chars, command) -> list[tuple[str, Any]]:
         logger.debug("spill redaction failed; dropping spill handle", exc_info=True)
         with _quiet("spill unlink"):
             Path(path).unlink()
-        return []
+        return [("truncation_note", "Output capture is unavailable; spill redaction failed.")]
+    try:
+        publish = getattr(env, "publish_output_file", None)
+        if callable(publish):
+            path = publish(path)
+    except Exception:
+        logger.debug("spill publication failed; dropping spill handle", exc_info=True)
+        return [("output_total_chars", total_chars),
+                ("truncation_note", "Output capture is unavailable inside the terminal environment.")]
+    saved = "Full output" if capture_complete else "An incomplete output capture"
     note = ("Output exceeded the capture window (head+tail shown). "
-            f"Full output ({total_chars:,} chars) saved to {path} — search it with "
-            "search_files or page it with read_file instead of re-running the command.")
-    return [("output_total_chars", total_chars), ("full_output_path", path), ("truncation_note", note)]
+            f"{saved} saved to {path} (command produced {total_chars:,} chars). "
+            "Search it with search_files or page it with read_file instead of re-running the command. "
+            "For long lines or JSON, use bounded terminal parsing or character slices. "
+            "Captures may be pruned after seven days or lost when the terminal environment is removed.")
+    return [("output_total_chars", total_chars), ("full_output_path", path),
+            ("output_capture_complete", capture_complete), ("truncation_note", note)]
 
 
 def _verification_evidence(command, cwd, session_id, returncode, output) -> Optional[dict]:
@@ -261,7 +280,8 @@ def finalize_foreground_result(
     optional_fields: list[tuple[str, Any]] = [
         ("cwd", changed_cwd),
         ("environment_recreated", _ENV_RECREATED_NOTE if result.get("environment_recreated") else None),
-        *_redact_spill_file(result.get("full_output_path"), result.get("output_total_chars"), command),
+        *_redact_spill_file(result.get("full_output_path"), result.get("output_total_chars"), command,
+                            env=env, capture_complete=result.get("output_capture_complete", True)),
         ("verification_evidence", _verification_evidence(
             command, command_cwd, session_id or task_id or effective_task_id or "default",
             returncode, output)),

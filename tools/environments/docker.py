@@ -1109,6 +1109,12 @@ class DockerEnvironment(BaseEnvironment):
         client_env = self._docker_client_env(env_values)
         return _popen_bash(cmd, stdin_data, env=client_env) if client_env is not None else _popen_bash(cmd, stdin_data)
 
+    def publish_output_file(self, path: str) -> str:
+        """Expose a redacted host capture to this task's terminal and file tools."""
+        from tools.environments.docker_output import publish_output_file
+        return publish_output_file(self._docker_exe, self._container_id, Path(path),
+                                   client_env=self._docker_client_env({}))
+
     # --- "No such container" recovery ---
     _NO_CONTAINER_PATTERNS = ("No such container", "is not running", "no such container")
 
