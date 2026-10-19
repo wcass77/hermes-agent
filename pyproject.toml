@@ -119,7 +119,8 @@ dependencies = [
   # macOS and Windows.  It replaces POSIX-only idioms like `os.kill(pid, 0)`
   # (which is a silent killer on Windows — see CONTRIBUTING.md) and
   # `os.killpg` (which doesn't exist on Windows).
-  "psutil==7.2.2; sys_platform != 'android' and python_version >= '3.14'",
+  # This external-install fork runs Python 3.11, including its POSIX native dependencies.
+  "psutil==7.2.2; sys_platform != 'android'",
   # Android Python 3.13+ needs upstream #2891 for platform recognition and
   # disk_partitions(). The fix is not in a published psutil release yet.
   # Keep this commit until a release includes it, then remove the source pin.
@@ -148,7 +149,7 @@ dependencies = [
   # by fastapi itself, so the dashboard's multipart upload endpoint would 500
   # without an explicit dependency here (and in the `web` extra below).
   "python-multipart>=0.0.9,<1",
-  "ptyprocess>=0.7.0,<1; sys_platform != 'win32' and python_version >= '3.14'",
+  "ptyprocess==0.7.0; sys_platform != 'win32'",
   # Python 3.14 requires pywinpty 3.x. Version 3.0.5 includes the native
   # binaries missing from 3.0.4 wheels on both Windows architectures.
   "pywinpty>=3.0.5,<4; sys_platform == 'win32' and python_version >= '3.14'",
