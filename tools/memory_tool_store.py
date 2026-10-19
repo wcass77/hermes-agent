@@ -374,6 +374,9 @@ class MemoryStore:
             extra_fields = result[2] if len(result) > 2 else {}
             if entries != result[0]:
                 extra_fields = {**extra_fields, "redacted": True}
+                if "patched_entry_after" in extra_fields:
+                    extra_fields["patched_entry_after"] = redact_sensitive_text(
+                        extra_fields["patched_entry_after"], force=True, redact_url_credentials=True)
                 if "patched_entries_after" in extra_fields:
                     extra_fields["patched_entries_after"] = {
                         key: redact_sensitive_text(value, force=True, redact_url_credentials=True)
