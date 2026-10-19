@@ -26,7 +26,8 @@ from tools.file_operations import (
     ShellFileOperations, normalize_read_pagination, normalize_search_pagination)
 from tools.file_operations_common import DEFAULT_READ_LIMIT, count_conflict_blocks
 from tools import file_state
-from agent.redact import _is_secret_file_arg, redact_sensitive_text
+from agent.redact import _is_secret_file_arg
+from agent.output_policy import protect_file_output
 from tools.file_tools_paths import (
     _expand_tilde, _path_resolution_warning, _resolve_base_dir, _resolve_entry_for_task,
     _resolve_path_for_task)
@@ -482,8 +483,8 @@ def _read_extracted_document(path: str, _resolved, offset: int, limit: int, task
         _apply_char_budget(result_dict, result_dict["content"], offset, total_lines, max_chars)
     if result_dict["content"]:
         rendered = result_dict["content"]
-        result_dict["content"] = redact_sensitive_text(
-            rendered, file_read=True,
+        result_dict["content"] = protect_file_output(
+            rendered,
             secret_file=_is_secret_file_arg(str(_resolved)))
         redacted = result_dict["content"] != rendered
     else:
@@ -705,8 +706,8 @@ def read_file_tool(path: str, offset: int = 1, limit: int = DEFAULT_READ_LIMIT, 
         redacted = False
         if result.content:
             unredacted = result.content
-            result.content = redact_sensitive_text(
-                unredacted, file_read=True, secret_file=_is_secret_file_arg(resolved_str))
+            result.content = protect_file_output(
+                unredacted, secret_file=_is_secret_file_arg(resolved_str))
             redacted = result.content != unredacted
             result_dict["content"] = result.content
 
@@ -1104,8 +1105,8 @@ def search_tool(pattern: str, target: str = "content", path: str = ".",
         omitted = _filter_read_blocked_search_results(result, task_id)
         for m in getattr(result, "matches", None) or ():
             if getattr(m, "content", None):
-                m.content = redact_sensitive_text(
-                    m.content, file_read=True,
+                m.content = protect_file_output(
+                    m.content,
                     secret_file=_is_secret_file_arg(_resolved_match_path(m.path, task_id)))
         result_dict = result.to_dict(densify=True)
 

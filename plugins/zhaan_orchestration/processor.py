@@ -189,6 +189,7 @@ class Processor:
         result = subprocess.run(
             [self.hermes_command, "--profile", "zhaan", "chat", "--resume", session_id, "-q", prompt, "--quiet"],
             cwd=self.workspace, env=environment, text=True, capture_output=True, timeout=1800,
+            stdin=subprocess.DEVNULL, check=False,
         )
         if result.returncode != 0:
             raise RuntimeError(result.stderr[-2000:] or f"Hermes exited {result.returncode}")
@@ -207,7 +208,7 @@ class Processor:
         reply = f"{reply}\n\n{self._routing_footer(decision)}"
         outgoing = []
         if manifest.is_file():
-            prepared = json.loads(manifest.read_text(encoding="utf-8"))
+            prepared = json.loads(manifest.read_text(encoding="utf-8-sig"))
             path = Path(prepared["path"]).resolve(strict=True)
             archive = (self.workspace / "documents" / "archive").resolve()
             if archive not in path.parents or hashlib.sha256(path.read_bytes()).hexdigest() != prepared["sha256"]:

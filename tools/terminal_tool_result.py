@@ -170,8 +170,9 @@ def _failure_hint(command: str, returncode: int, output: str, exit_note) -> Opti
 def _redact_spill_file(path, total_chars, command, *, env=None,
                        capture_complete=True) -> list[tuple[str, Any]]:
     """Spill handle so the model can read the omitted middle instead of
-    re-running. The collector wrote it raw; redact it with the same pass so no
-    secret persists unmasked on disk. On failure drop the handle (and file)."""
+    re-running. Apply the same ordinary-output policy and mandatory guards as
+    the preview. Fidelity captures are sensitive private replay, not diagnostic
+    logs. On failure drop the handle (and file)."""
     if not path:
         return []
     try:

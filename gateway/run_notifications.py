@@ -1510,8 +1510,8 @@ class GatewayNotificationsMixin(GatewayNotificationOwnershipMixin):
 
     @staticmethod
     def _format_coalesced_process_completions(entries: list[tuple[str, dict, asyncio.Future]]) -> str:
-        """Build one bounded synthetic event from several redacted completions."""
-        from gateway.run import _redact_gateway_user_facing_secrets
+        """Build one bounded model event from several guarded completions."""
+        from agent.output_policy import protect_background_notification
         lines = [
             f"[IMPORTANT: {len(entries)} background processes completed for this session.",
             "Treat these results as one completion batch and send at most one "
@@ -1522,9 +1522,8 @@ class GatewayNotificationsMixin(GatewayNotificationOwnershipMixin):
             session_id = str(evt.get("session_id") or "unknown")
             exit_code = evt.get("exit_code")
             reason = str(evt.get("completion_reason") or "exited")
-            # Unconditional gateway redaction floor (the producer-seam redactor is configurable). Redact
-            # BEFORE slicing: truncating first can leave a credential fragment the patterns miss.
-            output = _redact_gateway_user_facing_secrets(str(evt.get("output") or "")).strip()
+            # Guard before slicing so a truncated credential cannot evade classification.
+            output = protect_background_notification(str(evt.get("output") or ""), str(evt.get("command") or "")).strip()
             if len(output) > 800:
                 output = f"[… truncated …]\n{output[-800:]}"
             lines.append(f"\n- {session_id}: exit_code={exit_code}, reason={reason}")
@@ -1865,6 +1864,7 @@ class GatewayNotificationsMixin(GatewayNotificationOwnershipMixin):
     @staticmethod
     def _build_process_completion_event(watcher: dict, session, session_id: str) -> dict:
         """Build the synthetic ``completion`` event for an agent-notify watcher."""
+        from agent.output_policy import protect_background_notification
         from gateway.run import _redact_gateway_user_facing_secrets
         from agent.redact import redact_terminal_output
         from tools.ansi_strip import strip_ansi
@@ -1898,7 +1898,7 @@ class GatewayNotificationsMixin(GatewayNotificationOwnershipMixin):
             "exit_code": session.exit_code,
             "completion_reason": getattr(session, "completion_reason", "exited"),
             "termination_source": getattr(session, "termination_source", ""),
-            "output": _redact_gateway_user_facing_secrets(_out),
+            "output": protect_background_notification(_out, _command),
             # Spawning session-db id: lets pre-flight drop this completion if the user /new'd first.
             "parent_session_id": (
                 watcher.get("parent_session_id") or getattr(session, "parent_session_id", "") or ""

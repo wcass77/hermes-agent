@@ -335,8 +335,10 @@ def _cmd_export(db, args):
         return _not_found(args.session_id)
 
     def _redact(data):
-        if not args.redact or data is None:
+        if data is None:
             return data
+        if getattr(args, "no_redact", False):
+            return {**data, "export_redaction": "raw"}
         from hermes_cli.session_export_md import redact_session_data
         return redact_session_data(data)
 

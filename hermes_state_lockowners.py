@@ -103,6 +103,9 @@ def state_db_write_lock_holders(db_path) -> list[str]:
         except OSError:
             return []
         held.extend(entry for entry in parse_proc_locks(text, inodes) if entry not in held)
+    if not held and inodes:
+        from hermes_state_lockowners_fdinfo import descriptor_write_locks
+        held = descriptor_write_locks(base, inodes)
     from hermes_state_holders import describe_holder_pid
 
     lines = []

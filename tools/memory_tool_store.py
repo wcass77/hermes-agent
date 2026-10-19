@@ -358,12 +358,26 @@ class MemoryStore:
             result = mutate(self._entries_for(target), self._char_limit(target))
             if isinstance(result, dict):
                 return result
-            self._set_entries(target, result[0])
+            from agent.redact import redact_sensitive_text
+
+            old_entries = self._entries_for(target)
+            entries = [entry if entry in old_entries else redact_sensitive_text(
+                entry, force=True, redact_url_credentials=True) for entry in result[0]]
+            if len(ENTRY_DELIMITER.join(entries)) > max(
+                    self._char_limit(target), len(ENTRY_DELIMITER.join(old_entries))):
+                return self._failure_with_entries(target, "Sanitized memory would exceed the character limit.")
+            self._set_entries(target, entries)
             from hermes_constants import mkdir_under_hermes_home
 
             mkdir_under_hermes_home(path.parent)
-            self._write_file(path, result[0])
+            self._write_file(path, entries)
             extra_fields = result[2] if len(result) > 2 else {}
+            if entries != result[0]:
+                extra_fields = {**extra_fields, "redacted": True}
+                if "patched_entries_after" in extra_fields:
+                    extra_fields["patched_entries_after"] = {
+                        key: redact_sensitive_text(value, force=True, redact_url_credentials=True)
+                        for key, value in extra_fields["patched_entries_after"].items()}
             return self._success_response(target, result[1], **extra_fields)
 
     def add(self, target: str, content: str) -> dict[str, Any]:

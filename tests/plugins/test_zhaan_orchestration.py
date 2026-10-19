@@ -60,7 +60,7 @@ def test_disabled_by_default_registers_no_tools(tmp_path, monkeypatch):
 def test_signature_timestamp_and_replay_queue(tmp_path):
     secret_raw = b"test secret"
     secret = "whsec_" + base64.b64encode(secret_raw).decode()
-    now = dt.datetime.now(dt.timezone.utc)
+    now = dt.datetime.now(dt.UTC)
     timestamp = str(int(now.timestamp()))
     body = json.dumps({"event_id": "evt", "message": {"message_id": "msg", "thread_id": "thr", "inbox_id": "in"}}).encode()
     webhook_id = "wh_1"
@@ -420,7 +420,7 @@ class FakeSessionDB:
             "id": session_id,
             "started_at": dt.datetime(
                 week_start.year, week_start.month, week_start.day, 21, 30,
-                tzinfo=dt.timezone.utc,
+                tzinfo=dt.UTC,
             ).timestamp(),
         }
 
@@ -461,7 +461,7 @@ def test_shared_update_uses_one_main_channel_weekly_session_and_mirrors(tmp_path
         store, tmp_path, channel_id="123", send_message=send,
         session_db_factory=lambda: db,
     )
-    instant = dt.datetime(2026, 8, 4, 16, tzinfo=dt.timezone.utc)
+    instant = dt.datetime(2026, 8, 4, 16, tzinfo=dt.UTC)
     first = service.post("School closes at 2 PM.", now=instant)
     second = service.post("Pickup is at the west door.", now=instant)
 
@@ -511,7 +511,7 @@ def test_shared_update_reports_visible_but_unmirrored_partial_failure(tmp_path):
         session_db_factory=lambda: db,
     )
     result = service.post(
-        "Update", now=dt.datetime(2026, 8, 4, 16, tzinfo=dt.timezone.utc)
+        "Update", now=dt.datetime(2026, 8, 4, 16, tzinfo=dt.UTC)
     )
     assert not result["success"]
     assert result["discord_sent"]

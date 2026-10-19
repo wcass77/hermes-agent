@@ -16,7 +16,7 @@ from tools.browser_tool_origin import origin_module
 
 def _canonical_path(path: str) -> str | None:
     """Accept encoded filenames but reject ambiguous separators and traversal."""
-    if re.search(r"%(?![0-9a-fA-F]{2})|%2f|%5c", path, re.I):
+    if re.search(r"%(?![0-9a-fA-F]{2})|%2f|%5c", path, re.IGNORECASE):
         return None
     decoded = unquote(path, errors="strict")
     if any(c in decoded for c in ("%", "\\")) or "//" in decoded:

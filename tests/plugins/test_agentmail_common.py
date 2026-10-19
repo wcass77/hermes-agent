@@ -38,7 +38,7 @@ def test_addresses_are_normalized_and_reject_injection():
 def test_svix_verification_is_shared_across_integrations():
     secret_raw = b"shared secret"
     secret = "whsec_" + base64.b64encode(secret_raw).decode()
-    now = dt.datetime.now(dt.timezone.utc)
+    now = dt.datetime.now(dt.UTC)
     timestamp = str(int(now.timestamp()))
     body = b'{"event_type":"message.received"}'
     signed = b"event." + timestamp.encode() + b"." + body

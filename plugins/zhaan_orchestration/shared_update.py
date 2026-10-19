@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import contextlib
 import datetime as dt
-import fcntl
 import json
 import os
 from pathlib import Path
@@ -82,6 +81,8 @@ class SharedUpdateService:
 
     @contextlib.contextmanager
     def _lock(self):
+        import fcntl
+
         path = self.store.path.with_suffix(self.store.path.suffix + ".shared-update.lock")
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w") as handle:
@@ -133,12 +134,12 @@ class SharedUpdateService:
         if current:
             try:
                 current_started = dt.datetime.fromtimestamp(
-                    float(current.get("started_at")), tz=dt.timezone.utc
+                    float(current.get("started_at")), tz=dt.UTC
                 )
             except (TypeError, ValueError, OSError):
                 current_started = None
 
-        boundary_utc = boundary.astimezone(dt.timezone.utc)
+        boundary_utc = boundary.astimezone(dt.UTC)
         if current and current_started and current_started >= boundary_utc:
             session_id = str(current["id"])
         else:

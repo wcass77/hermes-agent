@@ -2164,7 +2164,7 @@ def _(rid, params: dict) -> dict:
 def _(rid, params: dict, session: dict) -> dict:
     if _session_uses_compute_host(session):
         return _save_via_compute_host(rid, params)
-    from hermes_cli.session_export import load_save_snapshot, render_session_for_save
+    from hermes_cli.session_export import load_save_snapshot
     from hermes_state import SessionExportTooLargeError
     # As CLI/messaging /save json, under the SESSION's profile config + home (runs unscoped); a failed read falls back.
     try:
@@ -2185,8 +2185,8 @@ def _(rid, params: dict, session: dict) -> dict:
                     "system_prompt": getattr(agent, "_cached_system_prompt", "") or "",
                     "messages": list(session.get("history", []))}
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(render_session_for_save(data, "json"), encoding="utf-8")
+        from tui_gateway.session_export import write_save_snapshot
+        write_save_snapshot(session, data, path)
     except Exception as e:
         return _err(rid, 5011, f"failed to save {path}: {e}")
     return _ok(rid, {"file": str(path)})

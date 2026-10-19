@@ -777,6 +777,7 @@ def _session_view_html(s: dict[str, Any], is_multi: bool) -> str:
                     <div class="meta-item"><strong>ID:</strong> {escaped_sid}</div>
                     <div class="meta-item"><strong>Model:</strong> {_escape_html(s.get("model") or "Unknown")}</div>
                     <div class="meta-item"><strong>Started:</strong> {_format_timestamp(s.get("started_at", 0))}</div>
+                    <div class="meta-item"><strong>Export redaction:</strong> {_escape_html(s.get("export_redaction") or "unspecified")}</div>
                 </div>
                 {system_html}
             </header>

@@ -102,6 +102,7 @@ def _export_body_without_hash(session: dict[str, Any], *, fmt: str, exported_at:
         ("tool_call_count", session.get("tool_call_count") or 0),
         *([("lineage_session_ids", session["lineage_session_ids"])] if session.get("lineage_session_ids") else []),
         ("format", fmt), ("exported_at", exported_iso), ("exporter", EXPORTER_VERSION),
+        *([("export_redaction", session["export_redaction"])] if session.get("export_redaction") else []),
     ]
     parts = [
         "\n".join(["---", *(_frontmatter_line(k, v) for k, v in fields), "---", ""]),
@@ -169,21 +170,22 @@ def verify_export_file(path: Path | str, session: dict[str, Any]) -> tuple[bool,
 def redact_session_data(session: dict[str, Any]) -> dict[str, Any]:
     """Return a copy of a session export dict with secrets redacted.
 
-    Every message's content and tool-call arguments go through the force-mode redaction pass
-    (``agent.redact.redact_sensitive_text``) so credentials in tool output never land in exports.
+    Includes metadata, system prompts and tool arguments. The private replay
+    source is never mutated. Pattern sanitization is best effort, not anonymization.
     """
-    from agent.redact import redact_sensitive_text
+    from agent.redact import is_secret_field_name, redact_sensitive_text
 
     def _clean(value: Any) -> Any:
         if isinstance(value, str):
-            return redact_sensitive_text(value, force=True)
+            return redact_sensitive_text(value, force=True, redact_url_credentials=True)
         if isinstance(value, list):
             return [_clean(v) for v in value]
         if isinstance(value, dict):
-            return {k: _clean(v) for k, v in value.items()}
+            return {_clean(k): "[REDACTED]" if is_secret_field_name(k) and v else _clean(v)
+                    for k, v in value.items()}
         return value
 
-    return {**session, **{k: _clean(session[k]) for k in ("messages", "segments") if session.get(k) is not None}}
+    return {**_clean(session), "export_redaction": "sanitized"}
 
 
 def _export_dir(output_dir: Path | str) -> Path:

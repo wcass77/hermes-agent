@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS email_sessions (
 
 
 def utcnow() -> str:
-    return dt.datetime.now(dt.timezone.utc).isoformat()
+    return dt.datetime.now(dt.UTC).isoformat()
 
 
 class Store:
@@ -90,7 +90,7 @@ class Store:
             }
 
     def claim_next(self, worker_id: str, now: dt.datetime | None = None) -> dict[str, Any] | None:
-        now = now or dt.datetime.now(dt.timezone.utc)
+        now = now or dt.datetime.now(dt.UTC)
         stamp = now.isoformat()
         with self.connect() as db:
             db.row_factory = sqlite3.Row
@@ -166,7 +166,7 @@ class Store:
             return "wait", owner_id
 
     def defer(self, event_id: str, *, delay_seconds: int = 10) -> None:
-        available = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=delay_seconds)).isoformat()
+        available = (dt.datetime.now(dt.UTC) + dt.timedelta(seconds=delay_seconds)).isoformat()
         with self.connect() as db:
             db.execute(
                 """UPDATE ingress_events
@@ -191,7 +191,7 @@ class Store:
                 db.rollback()
                 raise KeyError(event_id)
             status = "failed" if row[0] >= max_attempts else "retry"
-            available = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=delay_seconds)).isoformat()
+            available = (dt.datetime.now(dt.UTC) + dt.timedelta(seconds=delay_seconds)).isoformat()
             db.execute(
                 "UPDATE ingress_events SET status=?, available_at=?, last_error=? WHERE event_id=?",
                 (status, available, error[:2000], event_id),

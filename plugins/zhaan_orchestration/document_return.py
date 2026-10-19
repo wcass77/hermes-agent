@@ -25,13 +25,13 @@ RETURN_ARCHIVED_DOCUMENT_SCHEMA = {
 def resolve_document(workspace: Path, document_id: str) -> tuple[Path, str]:
     if not re.fullmatch(r"doc-[a-z0-9-]+", document_id or ""):
         raise ValueError("invalid document ID")
-    catalog = (workspace / "documents" / "CATALOG.md").read_text(encoding="utf-8")
-    match = re.search(rf"^## {re.escape(document_id)}(?: — .*?)?\n(?P<body>.*?)(?=^## |\Z)", catalog, re.M | re.S)
+    catalog = (workspace / "documents" / "CATALOG.md").read_text(encoding="utf-8-sig")
+    match = re.search(rf"^## {re.escape(document_id)}(?: — .*?)?\n(?P<body>.*?)(?=^## |\Z)", catalog, re.MULTILINE | re.DOTALL)
     if not match:
         raise ValueError(f"document not found: {document_id}")
     body = match.group("body")
-    path_match = re.search(r"^- Archive path: `([^`]+)`$", body, re.M)
-    hash_match = re.search(r"^- SHA-256: `([0-9a-f]{64})`$", body, re.M)
+    path_match = re.search(r"^- Archive path: `([^`]+)`$", body, re.MULTILINE)
+    hash_match = re.search(r"^- SHA-256: `([0-9a-f]{64})`$", body, re.MULTILINE)
     if not path_match or not hash_match:
         raise ValueError("catalog entry lacks archive path or SHA-256")
     archive_root = (workspace / "documents" / "archive").resolve()
@@ -72,7 +72,7 @@ def return_archived_document_tool(args: dict[str, Any], *, session_id: str = "",
                 "ZHAAN_DISCORD_TOKEN_FILE",
                 "/home/hermes/.hermes/profiles/zhaan/secrets/discord-bot-token",
             ))
-            token = token_file.read_text(encoding="utf-8").strip()
+            token = token_file.read_text(encoding="utf-8-sig").strip()
             if not token:
                 raise RuntimeError("Zhaan Discord token is unavailable")
         with path.open("rb") as attachment:

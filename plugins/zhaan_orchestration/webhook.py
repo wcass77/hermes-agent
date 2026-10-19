@@ -13,7 +13,7 @@ from .store import Store
 
 
 def allowed_senders(path: Path) -> set[str]:
-    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    data = yaml.safe_load(path.read_text(encoding="utf-8-sig")) or {}
     result: set[str] = set()
     for person in data.get("people", []):
         if not person.get("participant"):

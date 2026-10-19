@@ -35,7 +35,7 @@ from hermes_cli.config import get_hermes_home
 from tools.process_registry_notifications import format_process_notification, is_child_process_notification, should_surface_notification
 from tools.process_registry_checkpoint import ProcessCheckpointMixin
 from tools.process_registry_termination import ProcessTerminationMixin
-from tools.process_registry_results import load_completed_results, save_completed_result
+from tools.process_registry_results import load_completed_results, save_completed_result, not_found_process
 from tools.process_registry_env_log import log_delta_command
 
 logger = logging.getLogger(__name__)
@@ -514,10 +514,6 @@ def format_uptime_short(seconds: int) -> str:
     return f"{hours}h {mins}m"
 
 
-def _not_found(session_id: str) -> dict:
-    return {"status": "not_found", "error": f"No process with ID {session_id}"}
-
-
 def _output_tail(session: "ProcessSession", n: int) -> str:
     """Last *n* chars of the session output with ANSI sequences stripped."""
     from tools.ansi_strip import strip_ansi
@@ -558,6 +554,7 @@ class ProcessSession:
     completion_reason: str = "exited"           # exited|killed|lost|failed_start|already_exited
     termination_source: str = ""                # process.kill|kill_all|backend_lost|failed_start
     output_buffer: str = ""                     # Rolling tail (last max_output_chars)
+    output_transformed: bool = False            # Private recovery already applied the output hook.
     max_output_chars: int = MAX_OUTPUT_CHARS
     detached: bool = False                      # Recovered from checkpoint (no pipe)
     pid_scope: str = "host"                     # "host" for local/PTY PIDs, "sandbox" for env-local PIDs
@@ -2027,7 +2024,7 @@ class ProcessRegistry(ProcessTerminationMixin, ProcessCheckpointMixin):
         """Check status and get new output for a background process."""
         session = self.get(session_id)
         if session is None or self._uncollected_gone(session):
-            return _not_found(session_id)
+            return not_found_process(session_id)
         self._reconcile_local_exit(session)  # orphaned-pipe reader guard
         # Read with the preview under the lock the reader appends and exits under, so the
         # finalization check describes the output actually returned.
@@ -2055,7 +2052,7 @@ class ProcessRegistry(ProcessTerminationMixin, ProcessCheckpointMixin):
 
         session = self.get(session_id)
         if session is None:
-            return _not_found(session_id)
+            return not_found_process(session_id)
         with session._lock:
             full_output = strip_ansi(session.output_buffer)
             exited, finalizing = session.exited, self._reader_finalizing(session)
@@ -2103,12 +2100,12 @@ class ProcessRegistry(ProcessTerminationMixin, ProcessCheckpointMixin):
             timeout_note = f"Requested wait of {timeout}s was clamped to configured limit of {max_timeout}s"
         session = self.get(session_id)
         if session is None:
-            return _not_found(session_id)
+            return not_found_process(session_id)
         deadline = time.monotonic() + effective_timeout
         while time.monotonic() < deadline:
             session = self._refresh_detached_session(session)
             if session is None:
-                return _not_found(session_id)
+                return not_found_process(session_id)
             self._reconcile_local_exit(session)  # orphaned-pipe reader guard
             result = None
             if session.exited and not self._reader_finalizing(session):
@@ -2169,7 +2166,7 @@ class ProcessRegistry(ProcessTerminationMixin, ProcessCheckpointMixin):
         which passes true so a killed abandoned process can't revive stopped work."""
         session = self.get(session_id)
         if session is None:
-            return _not_found(session_id)
+            return not_found_process(session_id)
         if session.exited:
             # A double-forked descendant may still be alive in the systemd scope even
             # though the main process exited — stop the scope to reap survivors.
@@ -2322,7 +2319,7 @@ class ProcessRegistry(ProcessTerminationMixin, ProcessCheckpointMixin):
         else ``pipe_op(stdin)`` on the Popen pipe — and return *ok* on success."""
         session = self.get(session_id)
         if session is None:
-            return _not_found(session_id)
+            return not_found_process(session_id)
         if session.exited:
             return {"status": "already_exited", "error": "Process has already finished"}
         try:
@@ -2683,11 +2680,13 @@ def _redact_process_result(result: dict) -> dict:
     command = result.get("command") or ""
     # The hook's task_id is the process OWNER's (poll/log/wait results carry only session_id).
     task_id = str(result.get("task_id") or "")
-    if not task_id and (session := process_registry.get(str(result.get("session_id") or ""))) is not None:
+    session = process_registry.get(str(result.get("session_id") or ""))
+    if not task_id and session is not None:
         task_id = str(getattr(session, "task_id", "") or "")
     for key in ("output", "output_preview"):
         if isinstance(value := result.get(key), str) and value:
-            value = transform_process_output(value, command=command, returncode=result.get("exit_code"), task_id=task_id)
+            if session is None or not session.output_transformed:
+                value = transform_process_output(value, command=command, returncode=result.get("exit_code"), task_id=task_id)
             result[key] = redact_terminal_output(value, command)
     if isinstance(command, str) and command:
         result["command"] = redact_sensitive_text(command, code_file=True)

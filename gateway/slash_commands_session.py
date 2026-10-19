@@ -720,8 +720,8 @@ class GatewaySessionCommandsMixin:
             SAVE_USAGE, default_save_filename, load_save_snapshot, normalize_save_format, render_session_for_save)
 
         parts = event.get_command_args().split()
-        redact = bool(parts) and parts[-1].lower() in ("redact", "--redact")
-        if redact:
+        redact = not (parts and parts[-1].lower() == "--no-redact")
+        if parts and parts[-1].lower() in ("redact", "--redact", "--no-redact"):
             parts = parts[:-1]
         if not parts:
             return SAVE_USAGE
@@ -746,15 +746,12 @@ class GatewaySessionCommandsMixin:
             return str(e)
         if not export_data:
             return t("gateway.save.no_messages", session_id=session_id)
-        if redact:
-            from hermes_cli.session_export_md import redact_session_data
-            export_data = redact_session_data(export_data)
         temp_dir = tempfile.mkdtemp(prefix="hermes_save_")
         temp_path = os.path.join(temp_dir, filename)
         try:
             # Off-loop: render + write scale with transcript size (multi-MB) and would stall the loop.
             def _render_and_write() -> None:
-                rendered = render_session_for_save(export_data, fmt)
+                rendered = render_session_for_save(export_data, fmt, redact=redact)
                 with open(temp_path, "w", encoding="utf-8") as f:
                     f.write(rendered)
 

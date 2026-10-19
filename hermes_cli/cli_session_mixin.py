@@ -619,8 +619,8 @@ class CLISessionMixin:
             SAVE_USAGE, load_save_snapshot, normalize_save_format, render_session_for_save)
 
         parts = cmd.split()[1:]
-        redact = bool(parts) and parts[-1].lower() in ("redact", "--redact")
-        if redact:
+        redact = not (parts and parts[-1].lower() == "--no-redact")
+        if parts and parts[-1].lower() in ("redact", "--redact", "--no-redact"):
             parts = parts[:-1]
         if not parts:
             print(SAVE_USAGE)
@@ -654,11 +654,6 @@ class CLISessionMixin:
             session_data = {
                 "id": self.session_id, "model": self.model,
                 "started_at": self.session_start.timestamp(), "messages": self.conversation_history}
-        if redact:
-            from hermes_cli.session_export_md import redact_session_data
-
-            session_data = redact_session_data(session_data)
-
         saved_dir = get_hermes_home() / "sessions" / "saved"
         try:
             saved_dir.mkdir(parents=True, exist_ok=True)
@@ -674,7 +669,7 @@ class CLISessionMixin:
             path = saved_dir / f"hermes_conversation_{timestamp}.{fmt}"
 
         try:
-            content = render_session_for_save(session_data, fmt)
+            content = render_session_for_save(session_data, fmt, redact=redact)
             with open(path, "w", encoding="utf-8") as f:
                 f.write(content)
             label = {"json": "JSON", "md": t("cli.session.format_markdown"), "html": "HTML"}[fmt]

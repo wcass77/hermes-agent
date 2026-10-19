@@ -80,6 +80,9 @@ def test_live_writer_in_another_process_is_named_by_pid(tmp_path):
                 break
             time.sleep(0.05)
         assert any(f"PID {holder.pid} " in line and "WAL write" in line for line in lines), lines
+        unrelated = tmp_path / "unrelated.db"
+        unrelated.write_bytes(b"unrelated file identity")
+        assert state_db_write_lock_holders(unrelated) == []
     finally:
         holder.kill()
         holder.wait()

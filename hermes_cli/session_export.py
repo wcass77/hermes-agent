@@ -97,6 +97,8 @@ def iter_user_prompt_records(sessions: Iterable[dict[str, Any]]) -> Iterator[dic
                 "role": "user",
                 "text": _message_text(message.get("content")),
             }
+            if policy := session.get("export_redaction"):
+                record["export_redaction"] = policy
             if (message_id := message.get("id")) is not None:
                 record["message_id"] = message_id
             if event_id := message.get("platform_message_id") or message.get("event_id"):
@@ -182,6 +184,8 @@ def _session_metadata_lines(session: dict[str, Any]) -> list[str]:
         lines.append(f"- Started: {started}")
     if (message_count := session.get("message_count")) is not None:
         lines.append(f"- Messages: {message_count}")
+    if policy := session.get("export_redaction"):
+        lines.append(f"- Export redaction: {policy}")
     return lines
 
 
@@ -241,7 +245,7 @@ def load_save_snapshot(db: Any, session_id: str, fmt: str) -> Optional[dict[str,
 
 
 SAVE_USAGE = """/save — export the current session to a file
-Usage: /save <format> [filename] [redact]
+Usage: /save <format> [filename] [--no-redact]
 
 Formats:
   json    full session snapshot (canonical export shape)
@@ -251,7 +255,9 @@ Formats:
 Options:
   filename   optional output name/path (default: auto-named;
              CLI saves under ~/.hermes/sessions/saved/)
-  redact     scrub API keys, tokens, and credentials before writing
+  Exports are sanitized derivatives by default (best effort, still private).
+  --no-redact  export raw private history only after explicit request and review
+  redact      accepted for compatibility; sanitization is already the default
 
 Examples:
   /save json
@@ -283,12 +289,15 @@ _SAVE_RENDERERS = {
 }
 
 
-def render_session_for_save(session: dict[str, Any], fmt: str) -> str:
+def render_session_for_save(session: dict[str, Any], fmt: str, *, redact: bool = True) -> str:
     """Render one exported session dict for /save."""
     renderer = _SAVE_RENDERERS.get(fmt)
     if renderer is None:
         raise ValueError(f"Unknown save format: {fmt!r}")
-    return renderer(session)
+    from hermes_cli.session_export_md import redact_session_data
+
+    data = redact_session_data(session) if redact else {**session, "export_redaction": "raw"}
+    return renderer(data)
 
 
 def default_save_filename(session_id: str, fmt: str) -> str:

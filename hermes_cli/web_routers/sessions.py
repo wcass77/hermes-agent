@@ -926,12 +926,21 @@ def _compact_json(obj) -> str:
     return json.dumps(jsonable_encoder(obj), ensure_ascii=False, separators=(",", ":"))
 
 
+def _sanitize_export(data, profile):
+    from hermes_cli.session_export_md import redact_session_data
+    from hermes_cli.web_server_profiles import _hermes_home_scope
+
+    with _hermes_home_scope(_session_db_path_for_profile(profile).parent):
+        return redact_session_data(data)
+
+
 @manage_router.get("/api/sessions/{session_id}/export")
 async def export_session_endpoint(session_id: str, profile: Optional[str] = None):
-    """Stream a single session (metadata + messages) as JSON."""
+    """Stream a sanitized session derivative without rewriting private replay."""
     def _prepare_export(db):
         sid = _resolve_session_id(db, session_id)
-        return (sid, db.get_session(sid)) if sid else None
+        session = db.get_session(sid) if sid else None
+        return (sid, _sanitize_export(session, profile)) if session else None
 
     prepared = await asyncio.to_thread(_with_db, profile, _prepare_export, read_only=True)
     if prepared is None or prepared[1] is None:
@@ -950,7 +959,7 @@ async def export_session_endpoint(session_id: str, profile: Optional[str] = None
             while True:
                 messages = db.get_messages(sid, limit=500, after_id=last_id, include_inactive=True)
                 for message in messages:
-                    yield ("" if first else ",") + _compact_json(message)
+                    yield ("" if first else ",") + _compact_json(_sanitize_export({"messages": [message]}, profile)["messages"][0])
                     first = False
                 last_id = messages[-1].get("id") if len(messages) == 500 else None
                 if last_id is None:  # short page, or cannot keyset without row ids

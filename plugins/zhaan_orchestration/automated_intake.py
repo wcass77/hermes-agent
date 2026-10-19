@@ -63,5 +63,5 @@ def stage_source(message: dict[str, Any], directory: Path) -> Path:
     record = {k: message.get(k) for k in fields}
     record['attachments'] = [{k: item.get(k) for k in ('attachment_id', 'filename', 'content_type', 'size', 'content_length')}
                              for item in message.get('attachments', [])]
-    path.write_text(json.dumps(record, ensure_ascii=False, indent=2) + '\n')
+    path.write_text(json.dumps(record, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     return path

@@ -331,7 +331,10 @@ read from `/proc/locks` — SQLite's byte-range `fcntl` locks encode the lock ki
 in their offset (`state.db-shm` byte 120 = WAL write, 121 = checkpoint,
 123-127 = read slots; the 1 GiB pending-byte page on `state.db` = rollback-journal
 PENDING/RESERVED/SHARED). The open-descriptor scan cannot make this distinction
-because every Hermes process has the DB open. Look for that line in
+because every Hermes process has the DB open. If kernel and `stat()` device numbers
+differ (for example on Btrfs subvolumes), the diagnostic verifies each candidate
+descriptor against the database/sidecar identity and reads its `/proc/PID/fdinfo`
+lock records. It never attributes a lock by inode number alone. Look for that line in
 `~/.hermes/logs/errors.log` next to the `database is locked` failure.
 
 Lock contention is recognised by SQLite result code (`SQLITE_BUSY` /

@@ -25,9 +25,9 @@ _RESULT_FIELDS = (
 )
 
 
-def _result_paths():
+def _result_paths(directory=None):
     """Prune by completion time, not start time (jobs can take days)."""
-    directory = get_hermes_home() / "logs" / "process-results"
+    directory = directory or get_hermes_home() / "logs" / "process-results"
     cutoff = time.time() - RESULT_RETENTION_SECONDS
     retained = []
     for path in directory.glob("proc_*.json"):
@@ -47,18 +47,34 @@ def _result_paths():
 
 def save_completed_result(session) -> None:
     from agent.redact import redact_sensitive_text, redact_terminal_output
-    from tools.process_registry import MAX_OUTPUT_CHARS
+    from agent.output_policy import ordinary_output_policy
+    from tools.ansi_strip import strip_ansi
+    from tools.process_registry import MAX_OUTPUT_CHARS, transform_process_output
 
     with session._lock:
         record = {key: getattr(session, key) for key in _RESULT_FIELDS}
         record["output"] = session.output_buffer[-MAX_OUTPUT_CHARS:]
-    # Live-output opt-out must not persist raw credentials in durable receipts.
-    record["output"] = redact_terminal_output(record["output"], record["command"], force=True)
+    fidelity = ordinary_output_policy() == "fidelity"
+    output = record["output"]
+    if fidelity:
+        output = transform_process_output(strip_ansi(output), command=record["command"],
+                                          returncode=record["exit_code"], task_id=record["owner_task_id"] or record["task_id"])
+    record["output"] = redact_terminal_output(output, record["command"], force=not fidelity)[-MAX_OUTPUT_CHARS:]
     record["command"] = redact_sensitive_text(record["command"], code_file=True, force=True)
     directory = get_hermes_home() / "logs" / "process-results"
     try:
         from hermes_constants import assert_named_profile_home_live
         assert_named_profile_home_live(directory)
+        if fidelity:
+            # This is the canonical, sensitive recovery copy. The log receipt is
+            # diagnostic-only and must never silently replace faithful recovery.
+            recovery_dir = get_hermes_home() / "state" / "process-results"
+            recovery_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+            atomic_json_write(recovery_dir / f"{session.id}.json",
+                              {**record, "output_transformed": True}, mode=0o600)
+            _result_paths(recovery_dir)
+            record = {**record, "diagnostic_only": True,
+                      "output": redact_terminal_output(record["output"], session.command, force=True)}
         directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         atomic_json_write(directory / f"{session.id}.json", record, mode=0o600)
         _result_paths()
@@ -94,7 +110,9 @@ def load_completed_results(prefix: str = "") -> dict:
         return {}
     results = {}
     try:
-        paths = _result_paths()
+        private = _result_paths(get_hermes_home() / "state" / "process-results")
+        private_ids = {path.stem for path in private}
+        paths = private + [path for path in _result_paths() if path.stem not in private_ids]
     except OSError:
         logger.warning("Could not read retained process results", exc_info=True)
         return results
@@ -103,6 +121,8 @@ def load_completed_results(prefix: str = "") -> dict:
             continue
         try:
             record = json.loads(path.read_text(encoding="utf-8-sig"))
+            if record.get("diagnostic_only"):
+                continue
             if record["id"] != path.stem or not re.fullmatch(r"proc_[\w]+", record["id"]):
                 continue
             if not _owns_result(owner, record.get("parent_session_id")):
@@ -110,9 +130,14 @@ def load_completed_results(prefix: str = "") -> dict:
             session = ProcessSession(
                 **{key: record[key] for key in _RESULT_FIELDS},
                 exited=True, output_buffer=record["output"],
+                output_transformed=bool(record.get("output_transformed")),
             )
             session._completion_event.set()
             results[session.id] = session
         except (OSError, ValueError, KeyError, TypeError, sqlite3.Error):
             logger.debug("Skipping unreadable process result %s", path.name, exc_info=True)
     return results
+
+
+def not_found_process(session_id: str) -> dict:
+    return {"status": "not_found", "error": f"No process with ID {session_id}"}

@@ -23,7 +23,7 @@ def _read(path: Path, *, private: bool = False) -> bytes:
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     with os.fdopen(fd, 'rb') as handle:
         info = os.fstat(handle.fileno())
-        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
+        if not stat.S_ISREG(info.st_mode) or (not hasattr(os, "getuid") or info.st_uid != os.getuid()):
             raise SourceReceiptError('Source receipt file must be an owned regular file.')
         if private and info.st_mode & 0o077:
             raise SourceReceiptError('Private source receipt permissions are unsafe.')
@@ -33,7 +33,7 @@ def _read(path: Path, *, private: bool = False) -> bytes:
 def _directory(path: Path) -> None:
     path.mkdir(mode=0o700, exist_ok=True)
     info = path.lstat()
-    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+    if not stat.S_ISDIR(info.st_mode) or (not hasattr(os, "getuid") or info.st_uid != os.getuid()) or info.st_mode & 0o077:
         raise SourceReceiptError('Private source receipt directory is unsafe.')
 
 
@@ -103,7 +103,7 @@ def verify_source(root: Path, binding: dict[str, Any]) -> dict[str, Any]:
     for path in (root, root / 'sha256', root / 'sha256' / digest, root / 'events'):
         # Validate existing directories only: verification never creates evidence.
         info = path.lstat()
-        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+        if not stat.S_ISDIR(info.st_mode) or (not hasattr(os, "getuid") or info.st_uid != os.getuid()) or info.st_mode & 0o077:
             raise SourceReceiptError('Private source receipt directory is unsafe.')
     key = hashlib.sha256(binding['event_id'].encode()).hexdigest()
     if json.loads(_read(root / 'events' / f'{key}.json', private=True)) != binding:
@@ -123,10 +123,10 @@ def verify_catalog(workspace: Path, root: Path, binding: dict[str, Any]) -> dict
     matches = []
     for entry in re.split(r'(?m)(?=^## )', catalog):
         document = re.match(r'## ([a-z][a-z0-9-]*) — ', entry)
-        digest = re.search(r'^- SHA-256: `([0-9a-f]{64})`$', entry, re.M)
-        archive = re.search(r'^- Archive path: `([^`\n]+)`$', entry, re.M)
-        receipt = re.search(r'^- Receipt ID: `([^`\n]+)`$', entry, re.M)
-        provenance = re.search(r'^- Source: (.*)$', entry, re.M)
+        digest = re.search(r'^- SHA-256: `([0-9a-f]{64})`$', entry, re.MULTILINE)
+        archive = re.search(r'^- Archive path: `([^`\n]+)`$', entry, re.MULTILINE)
+        receipt = re.search(r'^- Receipt ID: `([^`\n]+)`$', entry, re.MULTILINE)
+        provenance = re.search(r'^- Source: (.*)$', entry, re.MULTILINE)
         if not all((document, digest, archive, receipt, provenance)):
             continue
         if binding['message_id'] not in provenance[1]:

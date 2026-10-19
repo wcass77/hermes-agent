@@ -89,7 +89,7 @@ def build_sessions_parser(subparsers, *, cmd_sessions: Callable) -> None:
     _flag(sessions_export, "--public",
         help="trace --upload only: create/update a public dataset instead of private")
     _flag(sessions_export, "--no-redact",
-        help=("trace only: skip the forced secret redaction; only use after manual review"))
+        help="Export raw private history; only use after explicit request and manual review")
     sessions_export.add_argument("--only", choices=["user-prompts"],
         help="Export only a filtered view (user-prompts: one prompt record "
             "per line for jsonl, headed sections for md)")
@@ -99,7 +99,7 @@ def build_sessions_parser(subparsers, *, cmd_sessions: Callable) -> None:
         "bare number of days, or an ISO timestamp). Filtered exports include pinned and archived "
         "sessions, so they back up everything a matching prune could delete")
     _flag(sessions_export, "--redact",
-        help="Redact secrets (API keys, tokens, credentials) from exported content")
+        help="Sanitize exported content (the default; retained for compatibility)")
     sessions_export.add_argument("--lineage", choices=["single", "logical"], default="single",
         help="md/qmd only: export one row or its compression lineage")
     _flag(sessions_export, "--delete-after-verified",

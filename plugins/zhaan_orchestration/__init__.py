@@ -30,7 +30,7 @@ def _is_gateway_process(argv: list[str] | None = None) -> bool:
 
 
 def _participant_discord_ids(path: Path) -> set[str]:
-    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    data = yaml.safe_load(path.read_text(encoding="utf-8-sig")) or {}
     return {
         str(person.get("channels", {}).get("discord_user_id"))
         for person in data.get("people", [])
@@ -94,7 +94,7 @@ def _start_server() -> None:
     _server = Server(
         "127.0.0.1", int(os.environ.get("ZHAAN_AGENTMAIL_WEBHOOK_PORT", "8787")),
         path=os.environ.get("ZHAAN_AGENTMAIL_WEBHOOK_PATH", "/webhooks/agentmail"),
-        secret=secret_file.read_text().strip(), people_path=people, store=store,
+        secret=secret_file.read_text(encoding="utf-8-sig").strip(), people_path=people, store=store,
     )
     threading.Thread(target=_server.serve_forever, name="zhaan-agentmail-webhook", daemon=True).start()
     api_key_file = Path(os.environ.get("ZHAAN_AGENTMAIL_API_KEY_FILE", "/home/hermes/.hermes/profiles/zhaan/secrets/agentmail-api-key"))
