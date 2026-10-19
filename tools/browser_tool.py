@@ -657,7 +657,7 @@ def _url_policy_error(url: str, *, auto_local: bool = False) -> Optional[dict]:
     # local Chromium on a cloud VM still reaches the host IMDS).
     if _is_always_blocked_url(url):
         return _err("Blocked: URL targets a cloud metadata endpoint")
-    if not local and not auto_local and not _cloud._allow_private_urls() and not _is_safe_url(url):
+    if not local and not auto_local and not _cloud._allow_private_urls() and _eval_policy._url_blocked(sys.modules[__name__], url):
         return _err("Blocked: URL targets a private or internal address")
     blocked = check_website_access(url)
     if blocked:
@@ -701,7 +701,7 @@ def _post_redirect_block(nav_session_key: str, url: str, final_url: str, auto_lo
         not _cloud._is_local_backend()
         and not auto_local_this_nav
         and not _cloud._allow_private_urls()
-        and not _is_safe_url(final_url)
+        and _eval_policy._url_blocked(sys.modules[__name__], final_url)
     ):
         what = "a private/internal address"
     else:

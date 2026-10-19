@@ -160,6 +160,36 @@ auto-installs it). Post-navigation redirects from a public URL onto a private
 address are still blocked (you can't use a redirect-to-internal trick to reach
 your LAN through the public path).
 
+### Narrow private app exceptions for a loopback CDP browser
+
+An operator can keep `browser.allow_private_urls: false` and allow selected
+private application paths for one configured loopback CDP browser:
+
+```yaml
+browser:
+  cdp_url: http://127.0.0.1:9222
+  allow_private_urls: false
+  private_url_exceptions:
+    cdp_url: http://127.0.0.1:9222
+    host: workstation.example.ts.net
+    addresses: [100.64.0.10]
+    paths: ["/", "/hours/", "/files/"]
+```
+
+The grant is profile-scoped and disabled when absent. It requires HTTPS port
+443, the exact hostname, DNS answers contained in `addresses`, and the exact
+configured CDP endpoint. `/` matches only the root; a trailing slash grants
+that application subtree and its bare landing path. Encoded filenames are
+supported, while ambiguous separators, double encoding and traversal are
+refused. Hours/timecard landing pages accept only a valid `period=YYYY-MM-DD`
+selector. A configured host fails closed on DNS drift, even to a public address.
+
+Navigation, redirected/current-page checks, content/input guards, and explicit
+eval/CDP URL checks share this policy. Metadata refusal and website blocklists
+still apply. This grants browser capability, not permission to change app data.
+It is not network egress isolation: page JavaScript and arbitrary CDP remain
+powerful, and the checks do not firewall subresources or intermediate redirects.
+
 ### Real profile browsing (use your own logins)
 
 By default, local browsing runs in a clean, throwaway profile — the agent is
