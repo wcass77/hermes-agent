@@ -126,7 +126,7 @@ def stage_native(args) -> int:
                    "--ref", args.ref or "HEAD", "--source", str(root)]
         for name, product in getattr(args, "frontends", {}).items():
             command += [f"--{name}", str(product)]
-        return subprocess.run(command, cwd=root, env=env, check=False).returncode
+        return subprocess.run(command, cwd=root, env=env, check=False, timeout=7200).returncode
 
 
 def prune_staged_store(store_dir: Path, names: list[str]) -> None:

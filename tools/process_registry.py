@@ -2592,9 +2592,6 @@ class ProcessRegistry(ProcessTerminationMixin, ProcessCheckpointMixin):
         self._completion_consumed &= tracked
         self._poll_observed &= tracked
 
-
-
-
 process_registry = ProcessRegistry()
 
 

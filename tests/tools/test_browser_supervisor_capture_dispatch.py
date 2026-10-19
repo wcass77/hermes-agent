@@ -10,6 +10,10 @@ from tools.browser_supervisor import _SupervisorRegistry
 from tools.browser_supervisor_capture import CapturedCDPInvalid
 
 class DelayedCDP(_FakeCDP):
+    def __init__(self):
+        self.release_reply = asyncio.Event()
+        super().__init__()
+
     async def _handle(self, ws):
         self.connections.append(ws)
         conn = len(self.connections)
@@ -22,7 +26,7 @@ class DelayedCDP(_FakeCDP):
                 result = {'targetInfos':[{'targetId':'fixture-parent','type':'page','url':'about:blank'}]}
             elif method == 'Target.attachToTarget':
                 if msg.get('params',{}).get('targetId') == 'late-child':
-                    await asyncio.sleep(.2)
+                    await self.release_reply.wait()
                     result = {'sessionId':'late-owned-session'}
                 else:
                     result = {'sessionId':'default-session'}
@@ -35,6 +39,7 @@ def pair():
     try:
         yield server, registry, sup, registry.capture('fixture')
     finally:
+        server.loop.call_soon_threadsafe(server.release_reply.set)
         registry.stop_all()
 
 
@@ -51,6 +56,7 @@ def test_unbounded_reply_retains_late_attachment_for_consumer_cleanup(pair):
     thread.start()
     _wait(lambda: len([m for m in server.methods_on(1) if m == 'Target.attachToTarget']) == 2)
     abandoned.set()
+    server.loop.call_soon_threadsafe(server.release_reply.set)
     thread.join(3)
     assert not thread.is_alive()
     assert outcomes == ['late-owned-session']
@@ -63,7 +69,7 @@ def test_dispatch_deadline_refuses_queued_command_after_timeout(pair):
     def block():
         # Stall the loop past the caller's deadline but inside its +1s result grace.
         entered.set()
-        time.sleep(.4)
+        time.sleep(.4)  # health: allow HX013 -- the dispatch deadline expiring during a blocked loop is the behavior under test
     sup._loop.call_soon_threadsafe(block)
     assert entered.wait(1)
     with pytest.raises(TimeoutError):

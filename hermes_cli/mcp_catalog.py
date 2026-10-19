@@ -431,7 +431,10 @@ def _run_bootstrap(cwd: Path, commands: list[str]) -> None:
     """Execute bootstrap commands in *cwd*. Raise CatalogError on first failure."""
     for cmd in commands:
         _say(f"  $ {cmd}", Colors.DIM)
-        rc = subprocess.run(cmd, cwd=str(cwd), shell=True, check=False).returncode
+        try:
+            rc = subprocess.run(cmd, cwd=str(cwd), shell=True, check=False, timeout=900).returncode
+        except subprocess.TimeoutExpired as exc:
+            raise CatalogError(f"bootstrap step timed out: {cmd}", failure_class="bootstrap_failed") from exc
         if rc != 0:
             raise CatalogError(f"bootstrap step failed (exit {rc}): {cmd}", failure_class="bootstrap_failed")
 

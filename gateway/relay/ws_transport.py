@@ -295,8 +295,10 @@ async def _await_bounded(aw: Awaitable[Any]) -> None:
     """Best-effort teardown await: bounded, swallows timeout/cancel/errors."""
     try:
         await asyncio.wait_for(aw, timeout=_TEARDOWN_AWAIT_TIMEOUT_S)
-    except (TimeoutError, asyncio.CancelledError, Exception):
+    except (TimeoutError, asyncio.CancelledError):
         pass
+    except Exception:
+        logger.debug("Relay teardown failed", exc_info=True)
 
 
 # Ceiling on the brokered-suspend redial hold. Must outlast the client's own
