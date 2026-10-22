@@ -22,7 +22,8 @@ from xml.parsers.expat import ExpatError
 
 def unit_uses_external_supervisor(unit_path: Path) -> bool:
     """An explicitly external gateway unit belongs to its administrator, not the generator."""
-    for line in unit_path.read_text(encoding="utf-8-sig").splitlines():
+    text = unit_path.read_text(encoding="utf-8-sig").replace("\\\n", "")
+    for line in text.splitlines():
         key, sep, value = line.strip().partition("=")
         if sep and key == "ExecStart":
             try:

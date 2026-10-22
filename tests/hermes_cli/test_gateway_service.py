@@ -452,10 +452,10 @@ class TestGatewayStopCleanup:
         """Without --all, stop uses systemd (if available) and does NOT call
         the global kill_gateway_processes().
 
-        Linux-gated: the routing under test is the systemd arm, and it is only
-        reached when the host really isn't macOS/Windows (the old
-        ``is_macos → False`` stub is gone).
+        Linux-gated: this contract exercises the systemd arm.
         """
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        monkeypatch.setattr(gateway_cli, "find_gateway_pids", lambda: [100000000])
         unit_path = tmp_path / "hermes-gateway.service"
         unit_path.write_text("unit\n", encoding="utf-8")
 
@@ -1470,21 +1470,17 @@ class TestSystemUnitHermesHome:
         assert gateway_cli.systemd_unit_is_current(system=False)
         assert 'LD_LIBRARY_PATH=/opt/cuda/lib64:/opt/pct%%dir/lib' in gateway_cli.generate_systemd_unit(system=False)
 
-    def test_system_unit_remaps_caller_home_ld_library_path_components(self, monkeypatch):
-        """#14613: under sudo the caller's /root/... library dirs are unreadable to the target
-        user, so each colon-separated component is remapped like the PATH entries are."""
-        monkeypatch.setattr(Path, "home", staticmethod(lambda: Path("/root")))
-        monkeypatch.delenv("HERMES_HOME", raising=False)
-        monkeypatch.setattr(
-            gateway_cli, "_system_service_identity",
-            lambda run_as_user=None: ("alice", "alice", "/home/alice", 1001),
-        )
+    def test_system_unit_remaps_caller_home_ld_library_path_components(self, monkeypatch, tmp_path):
+        """Library directories follow the target account without reading the caller's real home."""
+        caller, target = tmp_path / "root", tmp_path / "alice"
+        monkeypatch.setattr(Path, "home", lambda: caller)
+        monkeypatch.setenv("HERMES_HOME", str(caller / ".hermes"))
+        monkeypatch.setattr(gateway_cli, "_system_service_identity",
+                            lambda run_as_user=None: ("alice", "alice", str(target), 1001))
         monkeypatch.setattr(gateway_cli, "_build_service_path_dirs", list)
-        monkeypatch.setenv("LD_LIBRARY_PATH", "/root/cuda/lib:/opt/cuda/lib64")
-
+        monkeypatch.setenv("LD_LIBRARY_PATH", f"{caller}/cuda/lib:/opt/cuda/lib64")
         unit = gateway_cli.generate_systemd_unit(system=True, run_as_user="alice")
-
-        assert 'Environment="LD_LIBRARY_PATH=/home/alice/cuda/lib:/opt/cuda/lib64"' in unit
+        assert f'Environment="LD_LIBRARY_PATH={target}/cuda/lib:/opt/cuda/lib64"' in unit
 
     def test_system_unit_uses_target_user_home_not_calling_user(self, monkeypatch, tmp_path):
         caller_home = tmp_path / "root"
