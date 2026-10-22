@@ -245,6 +245,8 @@ class SessionPersistenceMixin:
                 entry = self._routing_entry_from_json(key, entry_json)
                 if entry is not None:
                     self._entries[key] = entry
+                else:
+                    self._retain_unavailable_platform_entry(key, entry_json)
             return True
         except Exception as e:
             logger.warning("gateway.session: state.db routing load failed: %s", e)
@@ -272,6 +274,8 @@ class SessionPersistenceMixin:
         """
         if self._loaded:
             self._reconcile_recovered_routing_locked()
+            from gateway.session_unavailable_platforms import recover_available_entries
+            recover_available_entries(self)
             return
         self.sessions_dir.mkdir(parents=True, exist_ok=True)
         db_load_succeeded = self._load_routing_rows_locked()
@@ -306,6 +310,7 @@ class SessionPersistenceMixin:
                     self._entries[key] = SessionEntry.from_dict(entry_data)
                     imported += 1
                 except (ValueError, KeyError, TypeError) as e:
+                    self._retain_unavailable_platform_entry(key, json.dumps(entry_data))
                     logger.warning("Skipping invalid session entry %r: %s", key, e)
             if imported and db_had_entries:
                 logger.info(
@@ -422,6 +427,7 @@ class SessionPersistenceMixin:
         for key, entry_json in durable.items():
             durable_entry = self._routing_entry_from_json(key, entry_json)
             if durable_entry is None:
+                self._retain_unavailable_platform_entry(key, entry_json)
                 continue
             if key not in baseline:
                 # A key created while on fallback wins over a DB-only key; otherwise restore the
@@ -434,10 +440,16 @@ class SessionPersistenceMixin:
         self._routing_db_loaded = True
         self._routing_fallback_baseline = None
 
+    def _retain_unavailable_platform_entry(self, key: str, entry_json: str) -> None:
+        from gateway.session_unavailable_platforms import unavailable_platform_entry
+        if (data := unavailable_platform_entry(entry_json)) is not None:
+            self._lazy("_unavailable_platform_entries", dict).setdefault(key, data)
+
     def _snapshot_routing_locked(self) -> tuple[dict[str, Any], int]:
         """Capture immutable routing data and a monotonic generation."""
         self._reconcile_recovered_routing_locked()
-        return self._entries_as_dicts(), self._next_routing_generation_locked()
+        data = {**getattr(self, "_unavailable_platform_entries", {}), **self._entries_as_dicts()}
+        return data, self._next_routing_generation_locked()
 
     def _persist_routing_data(self, data: dict[str, Any], generation: int) -> None:
         """Serialize all whole-index writers through one durable write lock."""

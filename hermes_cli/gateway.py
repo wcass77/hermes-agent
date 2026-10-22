@@ -3388,11 +3388,11 @@ def systemd_unit_is_current(system: bool = False) -> bool:
     # stripped to /root/.hermes, so refresh would rewrite a correct unit and status warn forever.
     # Idempotent; the os.environ mutation persists for later runtime reads (restart's PID/drain).
     _sync_hermes_home_from_systemd_unit(system=system)
-
     unit_path = get_systemd_unit_path(system=system)
     if not unit_path.exists():
         return False
-
+    if gateway_service_owner.unit_uses_external_supervisor(unit_path):
+        return True
     installed = unit_path.read_text(encoding="utf-8-sig")
     expected_user = _read_systemd_user_from_unit(unit_path) if system else None
     expected = generate_systemd_unit(system=system, run_as_user=expected_user)
@@ -3418,7 +3418,7 @@ def _retire_hermes_replace_dropin(system: bool = False) -> bool:
 def refresh_systemd_unit_if_needed(system: bool = False) -> bool:
     """Rewrite the installed systemd unit when the generated definition has changed."""
     unit_path = get_systemd_unit_path(system=system)
-    if not unit_path.exists():
+    if not unit_path.exists() or gateway_service_owner.unit_uses_external_supervisor(unit_path):
         return False
 
     # Every boot/start/restart lands here: never rewrite a unit pinning another home (checked before
@@ -3435,7 +3435,6 @@ def refresh_systemd_unit_if_needed(system: bool = False) -> bool:
             return True
     elif current:
         return False
-
     expected_user = _read_systemd_user_from_unit(unit_path) if system else None
     new_unit = generate_systemd_unit(system=system, run_as_user=expected_user)
 

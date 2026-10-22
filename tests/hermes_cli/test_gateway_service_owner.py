@@ -75,3 +75,23 @@ class TestTempHomeServiceDefinitionGuard:
         monkeypatch.setattr(_tempfile, "gettempdir", lambda: str(tmp_path))
         unit = f'[Service]\nEnvironment="HERMES_HOME={tmp_path}/hermes-home"\n'
         assert gateway_service_owner.temp_home_in_service_definition(unit) is not None
+
+
+def test_refresh_preserves_explicit_external_supervisor_unit(unit, monkeypatch):
+    monkeypatch.setenv('HERMES_HOME', str(unit.real))
+    original = unit.original.replace(' gateway run', ' gateway run --external-supervisor')
+    original += 'LoadCredentialEncrypted=profile-token:/private/bootstrap.cred\nTimeoutStopSec=210\n'
+    unit.path.write_text(original)
+    assert gw.refresh_systemd_unit_if_needed(system=False) is False
+    assert unit.path.read_text() == original
+    assert unit.calls == []
+
+
+def test_external_unit_is_current_without_comparing_generator(tmp_path, monkeypatch):
+    home = tmp_path / 'home'
+    unit = tmp_path / 'hermes-gateway.service'
+    unit.write_text(UNIT.format(home=home).replace(' gateway run', ' gateway run \\\n --external-supervisor'))
+    monkeypatch.setenv('HERMES_HOME', str(home))
+    monkeypatch.setattr(gw, 'get_systemd_unit_path', lambda system=False: unit)
+    monkeypatch.setattr(gw, 'generate_systemd_unit', lambda **kwargs: pytest.fail('external unit compared to generator'))
+    assert gw.systemd_unit_is_current() is True

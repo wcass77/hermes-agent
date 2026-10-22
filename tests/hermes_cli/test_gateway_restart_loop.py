@@ -9,6 +9,7 @@ Covers:
 import json
 import os
 from argparse import Namespace
+from pathlib import Path
 
 import pytest
 
@@ -471,13 +472,15 @@ class TestGatewaySelfTargetingGuard:
         assert exc_info.value.code == 1
 
 
-    def test_stop_allows_outside_gateway(self, monkeypatch):
+    def test_stop_allows_outside_gateway(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
         # With the gateway marker unset, the self-targeting guard must NOT
         # fire. Prove control reaches the real stop path (rather than driving
         # real signal delivery, which would trip the live-system guard) by
         # short-circuiting the first downstream call with a sentinel.
         monkeypatch.delenv("_HERMES_GATEWAY", raising=False)
         import hermes_cli.gateway as gw
+        monkeypatch.setattr(gw, "find_gateway_pids", lambda: [100000000])
 
         class _Reached(Exception):
             pass

@@ -1175,6 +1175,9 @@ class SessionStore(
             return 0
         old_ns, new_ns = f"agent:{old}:", f"agent:{new}:"
         with self._lock:
+            self._ensure_loaded_locked()
+            from gateway.session_unavailable_platforms import rekey_unavailable_entries
+            dormant = rekey_unavailable_entries(self, old, new)
             moving = [key for key in self._entries if key.startswith(old_ns)]
             collisions = [
                 new_ns + key[len(old_ns):] for key in moving
@@ -1190,9 +1193,9 @@ class SessionStore(
                 if origin is not None and getattr(origin, "profile", None) == old:
                     origin = _dc_replace(origin, profile=new)
                 self._entries[new_key] = _dc_replace(entry, session_key=new_key, origin=origin)
-            if moving:
+            if moving or dormant:
                 self._save()
-        return len(moving)
+        return len(moving) + dormant
 
     def purge_profile_routing(self, profile: str) -> int:
         """Drop a deleted profile's live routing entries and persist the drop (#111926, delete side).
@@ -1207,12 +1210,15 @@ class SessionStore(
             return 0
         ns = f"agent:{name}:"
         with self._lock:
+            self._ensure_loaded_locked()
+            from gateway.session_unavailable_platforms import remove_unavailable_entries
+            dormant = remove_unavailable_entries(self, lambda key, data: key.startswith(ns))
             dropped = [key for key in self._entries if key.startswith(ns)]
             for key in dropped:
                 self._entries.pop(key, None)
-            if dropped:
+            if dropped or dormant:
                 self._save()
-        return len(dropped)
+        return len(dropped) + dormant
 
     def remove_by_session_id(self, session_id: str) -> int:
         """Drop every routing entry pointing at *session_id* (hard delete) and persist the drop.
@@ -1227,10 +1233,12 @@ class SessionStore(
             return 0
         with self._lock:
             self._ensure_loaded_locked()
+            from gateway.session_unavailable_platforms import remove_unavailable_entries
+            dormant = remove_unavailable_entries(self, lambda key, data: data.get("session_id") == session_id)
             dropped = [key for key, entry in self._entries.items() if entry.session_id == session_id]
             for key in dropped:
                 self._entries.pop(key, None)
-            if dropped:
+            if dropped or dormant:
                 hints = getattr(self, "_session_owner_hints", None)
                 if hints is not None:
                     hints.pop(session_id, None)
@@ -1238,7 +1246,7 @@ class SessionStore(
         if dropped:
             logger.info("SessionStore removed %d routing entr%s for deleted session %s",
                         len(dropped), "y" if len(dropped) == 1 else "ies", session_id)
-        return len(dropped)
+        return len(dropped) + dormant
 
     # Compression repoint is store bookkeeping, not user activity — leave ``updated_at`` alone so a
     # background compression on an idle session cannot make it look fresh to the
