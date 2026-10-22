@@ -366,7 +366,8 @@ class SessionSchemaMixin:
             for name in _FTS_BASE_TRIGGERS:
                 cursor.execute(f"DROP TRIGGER IF EXISTS {name}")
             cursor.execute("DROP TABLE IF EXISTS messages_fts")
-            self._ensure_fts_schema(cursor, "messages_fts", FTS_SQL)
+            # The empty-store path holds a savepoint; executescript would commit it.
+            self._execute_ddl_script_transactional(cursor, FTS_SQL)
             if has_messages:
                 cursor.execute("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')")
             cursor.execute(_CLEAR_REBUILD_MARKERS_SQL)
