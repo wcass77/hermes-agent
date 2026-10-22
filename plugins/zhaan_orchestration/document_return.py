@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 from pathlib import Path
 from typing import Any
 
 from hermes_state import SessionDB
 import requests
+from agent.secret_scope import get_secret
+from hermes_constants import get_hermes_home
 
 
 RETURN_ARCHIVED_DOCUMENT_SCHEMA = {
@@ -46,11 +47,11 @@ def resolve_document(workspace: Path, document_id: str) -> tuple[Path, str]:
 
 def return_archived_document_tool(args: dict[str, Any], *, session_id: str = "", **_kwargs) -> str:
     try:
-        workspace = Path(os.environ.get("ZHAAN_WORKSPACE", "/home/hermes/.hermes/profiles/zhaan/workspace"))
+        workspace = Path(get_secret("ZHAAN_WORKSPACE", str(get_hermes_home() / "workspace")))
         document_id = str(args.get("document_id") or "")
         path, digest = resolve_document(workspace, document_id)
-        manifest = os.environ.get("ZHAAN_AGENTMAIL_ATTACHMENT_MANIFEST")
-        email_session = os.environ.get("ZHAAN_AGENTMAIL_SESSION_ID")
+        manifest = get_secret("ZHAAN_AGENTMAIL_ATTACHMENT_MANIFEST")
+        email_session = get_secret("ZHAAN_AGENTMAIL_SESSION_ID")
         if manifest and session_id == email_session:
             target = Path(manifest)
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -68,9 +69,9 @@ def return_archived_document_tool(args: dict[str, Any], *, session_id: str = "",
         try:
             token = SharedUpdateService._token()
         except RuntimeError:
-            token_file = Path(os.environ.get(
+            token_file = Path(get_secret(
                 "ZHAAN_DISCORD_TOKEN_FILE",
-                "/home/hermes/.hermes/profiles/zhaan/secrets/discord-bot-token",
+                str(get_hermes_home() / "secrets/discord-bot-token"),
             ))
             token = token_file.read_text(encoding="utf-8-sig").strip()
             if not token:

@@ -1186,11 +1186,11 @@ class GatewayAdapterLifecycleMixin:
             )
         else:
             bind, port = claim[-2:]
-            message = head + f"sidecars on the same listener. Configure a distinct listener for profile '{profile_name}'."
+            message = head + f"on the same listener. Configure a distinct listener for profile '{profile_name}'."
             logger.error(
-                "Profile '%s' and '%s' both configure %s sidecars on %s:%s — refusing to start the duplicate "
-                "listener. Set platforms.%s.extra.sidecar_port to a distinct port for profile '%s'.",
-                owner, profile_name, pv, bind, port, pv, profile_name,
+                "Profile '%s' and '%s' both configure %s on %s:%s — refusing to start the duplicate "
+                "listener. Configure a distinct listener for profile '%s'.",
+                owner, profile_name, pv, bind, port, profile_name,
             )
         self._update_platform_runtime_status(
             f"{profile_name}:{platform.value}", platform_state="fatal",
@@ -1844,8 +1844,12 @@ class GatewayAdapterLifecycleMixin:
 
     @staticmethod
     def _adapter_listener_claim(platform: Platform, adapter: Any) -> Optional[tuple]:
-        """Exclusive listener claim (Photon sidecar bind+port): distinct credentials still cannot
+        """Exclusive plugin/Photon listener claim: distinct credentials still cannot
         share a port, so the later adapter is rejected before connect() disturbs the first."""
+        from gateway.listener_ownership import listener_claim
+        claim = getattr(adapter, "_profile_listener_claim", None)
+        if claim is not None:
+            return claim
         bind = getattr(adapter, "_sidecar_bind", None)
         if getattr(platform, "value", None) != "photon" or not isinstance(bind, str) or not bind.strip():
             return None
@@ -1853,7 +1857,7 @@ class GatewayAdapterLifecycleMixin:
             port = int(getattr(adapter, "_sidecar_port", None))
         except (TypeError, ValueError):
             return None
-        return ("listener", "photon", bind.strip().lower(), port)
+        return listener_claim(bind, port)
 
     @staticmethod
     def _adapter_credential_fingerprint(adapter: Any) -> Optional[str]:
@@ -1880,6 +1884,9 @@ class GatewayAdapterLifecycleMixin:
         adapters can resolve inbound profile routes before handlers or connect())."""
         adapter = self._instantiate_adapter(platform, config)
         if adapter is not None:
+            from gateway.listener_ownership import profile_listener_claim
+            # Detached claim/reconnect passes no longer have this owning registry scope.
+            adapter._profile_listener_claim = profile_listener_claim(platform.value, config)
             adapter.gateway_runner = self
         return adapter
 

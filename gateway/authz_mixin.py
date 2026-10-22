@@ -626,12 +626,28 @@ class GatewayAuthorizationMixin:
         # The guard judges the final verdict: a chat allowlist admits a bot before the ALLOW_BOTS block runs.
         return not self._bot_loop_guard_instance().blocked(self._bot_loop_guard_conversation(source))
 
-    def _principal_authorized(self, source: SessionSource, *, allow_adapter_delegation: bool) -> bool:
-        """The allowlist verdict alone, before the bot loop guard."""
+    def _explicit_principal_verdict(self, source: SessionSource) -> Optional[bool]:
+        """An authenticated service event or the receiving adapter's authoritative user policy.
+
+        Unlike intake-time role grants, a user registry can be evaluated for both messages and
+        off-turn component callbacks. It replaces env/pairing grants only for that live adapter.
+        """
         # Webhook events are HMAC-verified; a ``trusted_inbound`` platform's events come from the
         # service its adapter authenticated to (no human sender to allowlist).
         if source.platform == Platform.WEBHOOK or getattr(_registry_entry(source.platform), "trusted_inbound", False) is True:
             return True
+        adapter = self._intake_adapter_for(source)
+        resolve = getattr(adapter, "authorization_user_ids", None)
+        allowed = resolve() if callable(resolve) else None
+        if isinstance(allowed, (set, frozenset)):
+            return bool(source.user_id) and str(source.user_id) in allowed
+        return None
+
+    def _principal_authorized(self, source: SessionSource, *, allow_adapter_delegation: bool) -> bool:
+        """The allowlist verdict alone, before the bot loop guard."""
+        explicit = self._explicit_principal_verdict(source)
+        if explicit is not None:
+            return explicit
 
         adapter_profile = self._adapter_profile_for_source(source)
         is_group = source.chat_type in _GROUP_CHAT_TYPES

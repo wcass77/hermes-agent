@@ -1907,6 +1907,26 @@ optional_env:
 
 **Full guide:** [Adding Platform Adapters](../adding-platform-adapters.md) — complete `BasePlatformAdapter` contract, message routing, auth gating, setup wizard integration. Look at `plugins/platforms/irc/` for a stdlib-only working example.
 
+A plugin that deliberately retains a separate listener for each profile under
+multiplexing declares `profile_listener_fn(config) -> (host, port) | None` in
+`register_platform`. The callback is pure and runs in the owning profile's scope.
+Migration preflight and gateway startup compare the same endpoint claim and
+refuse collisions between declared listeners. Port zero is ephemeral and has no
+fixed claim. This differs from `serves_profile_prefix`: that declaration means
+the adapter supports the default profile's shared `/p/<profile>/` ingress.
+The gateway captures the claim during construction in the owning profile scope;
+detached startup/reconnect passes retain it. TCP endpoint identity is shared with
+built-in sidecars such as Photon, so different platforms cannot claim the same endpoint.
+
+An adapter backed by an authoritative user registry can implement
+`authorization_user_ids() -> set[str] | None`. A set (including an empty set)
+replaces the gateway's env, pairing and role grants for that receiving adapter;
+`None` retains ordinary authorization. The gateway evaluates it for both inbound
+messages and off-turn component callbacks using live transport provenance. The
+callback must be local, side-effect free and independent of the gateway's own
+authorization callback to avoid recursion. The bot loop guard still applies.
+Zhaan's Participant adapter uses this seam without modifying process env.
+
 ### Memory provider plugins — add a cross-session knowledge backend
 
 Drop an implementation of `MemoryProvider` into `plugins/memory/<name>/`:

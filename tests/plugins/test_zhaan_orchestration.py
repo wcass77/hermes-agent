@@ -197,7 +197,7 @@ def test_discord_unknown_user_is_dropped(tmp_path, monkeypatch):
     }
 
 
-def test_register_derives_core_discord_allowlist_from_people(tmp_path, monkeypatch):
+def test_register_derives_adapter_discord_allowlist_from_people(tmp_path, monkeypatch):
     people = tmp_path / "people.yaml"
     people.write_text(yaml.safe_dump({"people": [
         {"id": "willy", "participant": True, "channels": {"discord_user_id": "42"}},
@@ -209,14 +209,21 @@ def test_register_derives_core_discord_allowlist_from_people(tmp_path, monkeypat
     monkeypatch.setattr(plugin, "_start_server", lambda: None)
     hooks = []
     tools = []
+    platforms = []
     context = type("Context", (), {
         "register_hook": lambda self, name, hook: hooks.append((name, hook)),
         "register_tool": lambda self, **kwargs: tools.append(kwargs),
+        "register_platform": lambda self, **kwargs: platforms.append(kwargs),
     })()
 
     plugin.register(context)
 
-    assert os.environ["DISCORD_ALLOWED_USERS"] == "42,7"
+    assert "DISCORD_ALLOWED_USERS" not in os.environ
+    from gateway.config import PlatformConfig
+    adapter = platforms[0]["adapter_factory"](PlatformConfig(token="synthetic-discord"))
+    assert adapter._get_allowed_users() == {"42", "7"}
+    assert adapter.config.extra["allow_from"] == ["42", "7"]
+    assert adapter._is_sender_authorized("outsider", "group", "main") is False
     assert hooks == [("pre_gateway_dispatch", plugin.pre_gateway_dispatch)]
     assert [item["name"] for item in tools] == ["post_shared_update", "return_archived_document"]
     schema = tools[0]["schema"]["parameters"]
@@ -238,6 +245,7 @@ def test_register_starts_ingress_only_in_gateway(tmp_path, monkeypatch):
     context = type("Context", (), {
         "register_hook": lambda self, *_: None,
         "register_tool": lambda self, **_: None,
+        "register_platform": lambda self, **_: None,
     })()
 
     monkeypatch.delenv("_HERMES_GATEWAY", raising=False)

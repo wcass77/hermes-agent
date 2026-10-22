@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Callable, Iterator, Optional
+from hermes_cli.gateway_migrate_listeners import check_profile_listeners
 
 logger = logging.getLogger(__name__)
 
@@ -611,6 +612,7 @@ def _check_secondary_port_binders(plan: MigrationPlan, configs: dict[str, object
 _PREFLIGHT_CHECKS: tuple[Callable[[MigrationPlan, dict[str, object]], None], ...] = (
     _check_duplicate_credentials,
     _check_secondary_port_binders,
+    check_profile_listeners,
 )
 
 
