@@ -131,6 +131,13 @@ secrets:
 | `cache_ttl_seconds` | `300` | How long resolved values are reused (in-process and on disk). Set to `0` to disable **both** cache layers — no values are written to disk at all. |
 | `override_existing` | `true` | When true, resolved values overwrite anything already in env (so rotation takes effect). Flip to `false` to let `.env` / shell exports win; those references are then skipped *before* `op` is invoked. |
 
+An explicit token file is managed by the operator or service manager. `status`
+and `setup` report that selection without probing an ambient session; `sync`
+validates resolution. While a file is selected, `token` refuses environment-token
+rotation before prompting or saving, and `setup` rejects token/token-env arguments.
+Clear the file setting explicitly to select environment authentication. None of
+these commands rotates or replaces the external file.
+
 ## Failure modes
 
 1Password never blocks Hermes startup. If anything goes wrong you'll see a one-line warning in stderr and Hermes continues:
