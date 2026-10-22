@@ -15,20 +15,23 @@ def test_profile_listener_claims_match_boot_and_refuse_collision(tmp_path, monke
     root = tmp_path / ".hermes"
     root.mkdir()
     monkeypatch.setenv("HERMES_HOME", str(root))
-    profiles, configs, claims = [], {}, []
+    profiles, configs, adapters = [], {}, []
+    runner = object.__new__(GatewayRunner)
+    runner.config = GatewayConfig(multiplex_profiles=True)
     for number, name in enumerate(("pilot", "scorpius", "zhaan")):
         home = root / "profiles" / name
         home.mkdir(parents=True)
         (home / "config.yaml").write_text("{}\n")
         profiles.append(ProfileGateway(name=name, home=home))
-        entry = PlatformEntry(name="profile_listener", label="Profile listener", adapter_factory=lambda c: None,
+        entry = PlatformEntry(name="profile_listener", label="Profile listener", adapter_factory=lambda c: SimpleNamespace(config=c),
             check_fn=lambda: True, profile_listener_fn=lambda config: ("127.0.0.1", config.extra["port"]))
         platform_registry.register(entry, scope=hermes_home_key(home))
         settings = PlatformConfig(enabled=True, extra={"port": 20000 + number})
         with _profile_runtime_scope(home, hydrate_secrets=False):
             platform = Platform("profile_listener")
             configs[name] = GatewayConfig(platforms={platform: settings})
-            claims.append(GatewayRunner._adapter_listener_claim(platform, SimpleNamespace(config=settings)))
+            adapters.append(runner._create_adapter(platform, settings))
+    claims = [runner._adapter_listener_claim(platform, adapter) for adapter in adapters]
     assert len(set(claims)) == 3
     plan = MigrationPlan(default_home=root, profiles=profiles, multiplex_flag_on=False, live_served=None)
     check_profile_listeners(plan, configs)

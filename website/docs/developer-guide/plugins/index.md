@@ -1914,6 +1914,9 @@ Migration preflight and gateway startup compare the same endpoint claim and
 refuse collisions between declared listeners. Port zero is ephemeral and has no
 fixed claim. This differs from `serves_profile_prefix`: that declaration means
 the adapter supports the default profile's shared `/p/<profile>/` ingress.
+The gateway captures the claim during construction in the owning profile scope;
+detached startup/reconnect passes retain it. TCP endpoint identity is shared with
+built-in sidecars such as Photon, so different platforms cannot claim the same endpoint.
 
 ### Memory provider plugins — add a cross-session knowledge backend
 
