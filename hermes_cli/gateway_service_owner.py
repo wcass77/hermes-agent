@@ -15,8 +15,22 @@ from __future__ import annotations
 
 import os
 import plistlib
+import shlex
 from pathlib import Path
 from xml.parsers.expat import ExpatError
+
+
+def unit_uses_external_supervisor(unit_path: Path) -> bool:
+    """An explicitly external gateway unit belongs to its administrator, not the generator."""
+    for line in unit_path.read_text(encoding="utf-8-sig").splitlines():
+        key, sep, value = line.strip().partition("=")
+        if sep and key == "ExecStart":
+            try:
+                if "--external-supervisor" in shlex.split(value):
+                    return True
+            except ValueError:
+                continue
+    return False
 
 
 def pinned_home(definition_path: Path) -> str | None:

@@ -348,6 +348,10 @@ Options:
 | `--no-supervise` | On `run`: inside the s6-overlay Docker image, opt out of auto-supervision and use pre-s6 foreground semantics — gateway runs as the container's main process with no auto-restart. No-op outside the s6 image. Equivalent to setting `HERMES_GATEWAY_NO_SUPERVISE=1`. |
 | `--external-supervisor` | On `run`: declare that a wrapper-provided process manager owns the foreground gateway. Use this when `sudo`, `env -i`, or another wrapper strips launchd/systemd's native environment marker. In-chat restarts and updates exit back to that manager instead of spawning a detached replacement. |
 
+An installed systemd unit whose `ExecStart` explicitly passes `--external-supervisor`
+is administrator-owned: automatic unit refresh preserves its runtime, credentials
+and stop settings. Explicit reinstall remains available to replace it.
+
 `--external-supervisor` is a restart-policy contract: an in-chat restart,
 `hermes gateway restart`, or service-restart update exits with status `75`
 (the CLI then waits for the supervisor's fresh PID instead of running a

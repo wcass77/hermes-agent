@@ -3418,7 +3418,7 @@ def _retire_hermes_replace_dropin(system: bool = False) -> bool:
 def refresh_systemd_unit_if_needed(system: bool = False) -> bool:
     """Rewrite the installed systemd unit when the generated definition has changed."""
     unit_path = get_systemd_unit_path(system=system)
-    if not unit_path.exists():
+    if not unit_path.exists() or gateway_service_owner.unit_uses_external_supervisor(unit_path):
         return False
 
     # Every boot/start/restart lands here: never rewrite a unit pinning another home (checked before
