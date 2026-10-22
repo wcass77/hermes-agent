@@ -4,10 +4,10 @@ import json
 import base64
 import hashlib
 import mimetypes
-import os
 import re
 import shutil
 import subprocess
+from agent.secret_scope import get_secret
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -37,7 +37,8 @@ class PreparedEmail:
 
 def child_environment() -> dict[str, str]:
     """Return an agent-child environment without gateway process identity."""
-    environment = os.environ.copy()
+    from tools.environments.local import served_profile_child_env
+    environment = served_profile_child_env(inherit_credentials=True)
     environment.pop("_HERMES_GATEWAY", None)
     return environment
 
@@ -58,7 +59,7 @@ class Processor:
         self.workspace = workspace
         self.hermes_command = (
             hermes_command
-            or os.environ.get("ZHAAN_HERMES_COMMAND")
+            or get_secret("ZHAAN_HERMES_COMMAND")
             or shutil.which("hermes")
             or str(Path.home() / ".local/bin/hermes")
         )

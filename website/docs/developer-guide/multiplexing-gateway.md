@@ -284,6 +284,13 @@ HERMES_HOME override. Asset writes are atomic, type- and size-capped.
 
 ## Failure modes
 
+Plugins may retain explicit per-profile listeners through
+`PlatformEntry.profile_listener_fn`. Their stable endpoints stay with their
+profiles; startup and migration preflight reject duplicate declared endpoints.
+They do not pretend to support the shared `/p/<profile>/` listener. Credential
+resolution remains scoped to each owner and never requires a union of profile
+secrets in the process environment.
+
 - Fatal at startup: multiplex config errors and a secondary profile enabling a
   port-binding platform (`MultiplexConfigError`,
   `SecondaryPortBindingConfigError`) — one shared HTTP listener is owned by

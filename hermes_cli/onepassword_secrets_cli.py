@@ -304,6 +304,8 @@ def cmd_sync(args: argparse.Namespace) -> int:
     account = cfg_str(op_cfg, "account")
     token_env = op_cfg.get("service_account_token_env", _DEFAULT_TOKEN_ENV)
     binary_path = cfg_str(op_cfg, "binary_path")
+    token_file = cfg_str(op_cfg, "service_account_token_file")
+    from hermes_constants import get_hermes_home
 
     # --apply uses the startup code path so the skip/override/token-guard policy lives in one place.
     if args.apply:
@@ -312,6 +314,8 @@ def cmd_sync(args: argparse.Namespace) -> int:
             env=references,
             account=account,
             service_account_token_env=token_env,
+            service_account_token_file=token_file,
+            home_path=get_hermes_home(),
             binary_path=binary_path,
             override_existing=bool(op_cfg.get("override_existing", True)),
             cache_ttl_seconds=0,  # an explicit sync always resolves fresh
@@ -334,6 +338,8 @@ def cmd_sync(args: argparse.Namespace) -> int:
             references=references,
             account=account,
             token_env=token_env,
+            token_file=token_file,
+            home_path=get_hermes_home(),
             binary_path=binary_path,
             use_cache=False,
         )

@@ -2487,9 +2487,9 @@ DEFAULT_CONFIG = {
             "env": {},  # env-var name → op://vault/item/field; each resolved with one `op read`.
             # Account shorthand / sign-in address for `op read --account`; empty = default.
             "account": "",
-            # Env var holding a service-account token for headless auth (exported to op as
-            # OP_SERVICE_ACCOUNT_TOKEN). Unset = interactive/desktop op session.
+            # Headless token env (exported to op as OP_SERVICE_ACCOUNT_TOKEN); unset = interactive auth.
             "service_account_token_env": "OP_SERVICE_ACCOUNT_TOKEN",
+            "service_account_token_file": "",  # Explicit bootstrap; relative paths use this profile's home.
             # Absolute path to op, used verbatim (avoids trusting PATH). Empty = PATH.
             "binary_path": "",
             # Seconds to cache values in-process and on disk; 0 disables BOTH layers.

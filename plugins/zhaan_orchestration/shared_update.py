@@ -3,12 +3,13 @@ from __future__ import annotations
 import contextlib
 import datetime as dt
 import json
-import os
 from pathlib import Path
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
 from .store import Store
+from agent.secret_scope import get_secret_str
+from hermes_constants import get_hermes_home
 
 
 POST_SHARED_UPDATE_SCHEMA = {
@@ -71,6 +72,7 @@ class SharedUpdateService:
         timezone: str = "America/New_York",
         send_message: Callable | None = None,
         session_db_factory: Callable | None = None,
+        profile: str | None = None,
     ):
         self.store = store
         self.workspace = workspace
@@ -78,6 +80,7 @@ class SharedUpdateService:
         self.timezone = ZoneInfo(timezone)
         self._send_message_override = send_message
         self._session_db_factory_override = session_db_factory
+        self.profile = profile
 
     @contextlib.contextmanager
     def _lock(self):
@@ -122,7 +125,11 @@ class SharedUpdateService:
         self, db, instant: dt.datetime
     ) -> tuple[str, dt.date]:
         week_start, boundary = weekly_session_boundary(instant, self.timezone)
-        session_key = f"agent:main:discord:group:{self.channel_id}"
+        from gateway.config import Platform
+        from gateway.session import SessionSource, build_session_key
+        source = SessionSource(platform=Platform.DISCORD, chat_id=self.channel_id,
+                               chat_type="group", profile=self.profile)
+        session_key = build_session_key(source, group_sessions_per_user=False, profile=self.profile)
         current = db.find_latest_gateway_session_for_peer(
             source="discord",
             session_key=session_key,
@@ -131,6 +138,14 @@ class SharedUpdateService:
             thread_id=None,
         )
         current_started = None
+        if self.profile:
+            legacy_key = build_session_key(source, group_sessions_per_user=False)
+            legacy = db.find_latest_gateway_session_for_peer(
+                source="discord", session_key=legacy_key, chat_id=self.channel_id,
+                chat_type="group", thread_id=None)
+            if current and legacy and current["id"] != legacy["id"]:
+                raise RuntimeError("Weekly routing has two active histories; review offline before posting")
+            current = current or legacy
         if current:
             try:
                 current_started = dt.datetime.fromtimestamp(
@@ -168,6 +183,7 @@ class SharedUpdateService:
             "chat_id": self.channel_id,
             "chat_name": "Family Assistant / #family-logistics",
             "chat_type": "group",
+            "profile": self.profile,
         }
         db.record_gateway_session_peer(
             session_id,
@@ -177,6 +193,8 @@ class SharedUpdateService:
             chat_type="group",
             display_name=origin["chat_name"],
             origin_json=json.dumps(origin),
+            transport_profile=self.profile,
+            include_compression_ancestors=True,
         )
         return session_id, week_start
 
@@ -238,20 +256,24 @@ def configured_service() -> SharedUpdateService:
     entry = (plugins.get("entries") or {}).get("zhaan_orchestration") or {}
     channel_id = str(
         entry.get("coordination_channel_id")
-        or os.environ.get("ZHAAN_DISCORD_COORDINATION_CHANNEL_ID", "")
+        or get_secret_str("ZHAAN_DISCORD_COORDINATION_CHANNEL_ID")
     ).strip()
     if not channel_id:
         raise RuntimeError("Zhaan coordination_channel_id is not configured")
-    state = Path(os.environ.get(
+    state = Path(get_secret_str(
         "ZHAAN_ORCHESTRATION_STATE",
-        "/home/hermes/.hermes/profiles/zhaan/state/orchestration.sqlite",
+        str(get_hermes_home() / "state/orchestration.sqlite"),
     ))
-    workspace = Path(os.environ.get(
-        "ZHAAN_WORKSPACE", "/home/hermes/.hermes/profiles/zhaan/workspace",
+    workspace = Path(get_secret_str(
+        "ZHAAN_WORKSPACE", str(get_hermes_home() / "workspace"),
     ))
+    from hermes_cli.gateway_multiplex_mode import default_gateway_multiplexes
+    from hermes_cli.profiles import get_active_profile_name
+    profile = get_active_profile_name() if default_gateway_multiplexes() else None
     return SharedUpdateService(
         Store(state), workspace, channel_id=channel_id,
         timezone=str(config.get("timezone") or "America/New_York"),
+        profile=profile,
     )
 
 

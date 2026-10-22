@@ -1907,6 +1907,14 @@ optional_env:
 
 **Full guide:** [Adding Platform Adapters](../adding-platform-adapters.md) — complete `BasePlatformAdapter` contract, message routing, auth gating, setup wizard integration. Look at `plugins/platforms/irc/` for a stdlib-only working example.
 
+A plugin that deliberately retains a separate listener for each profile under
+multiplexing declares `profile_listener_fn(config) -> (host, port) | None` in
+`register_platform`. The callback is pure and runs in the owning profile's scope.
+Migration preflight and gateway startup compare the same endpoint claim and
+refuse collisions between declared listeners. Port zero is ephemeral and has no
+fixed claim. This differs from `serves_profile_prefix`: that declaration means
+the adapter supports the default profile's shared `/p/<profile>/` ingress.
+
 ### Memory provider plugins — add a cross-session knowledge backend
 
 Drop an implementation of `MemoryProvider` into `plugins/memory/<name>/`:

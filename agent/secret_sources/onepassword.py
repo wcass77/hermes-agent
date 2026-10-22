@@ -96,7 +96,7 @@ def _validate_references(references: Optional[dict[str, str]]) -> tuple[dict[str
     return valid, warnings
 
 
-def _auth_fingerprint(token_env: str) -> str:
+def _auth_fingerprint(token_env: str, *, token_value: Optional[str] = None) -> str:
     """SHA-256 prefix over everything `op` would authenticate with (token, account,
     Connect host/token, ``OP_SESSION_*``), so a new identity never sees old cached values."""
     source_env = get_source_environment()
@@ -104,6 +104,8 @@ def _auth_fingerprint(token_env: str) -> str:
         ("token", token_env), ("account", "OP_ACCOUNT"),
         ("connect_host", "OP_CONNECT_HOST"), ("connect_token", "OP_CONNECT_TOKEN"))]
     parts += [f"{key}={source_env[key]}" for key in sorted(source_env) if key.startswith("OP_SESSION_")]
+    if token_value is not None:
+        parts = [f"token={token_value}"]
     return _fingerprint("\n".join(parts))
 
 
@@ -127,17 +129,23 @@ def _scrub(text: str) -> str:
     return strip_ansi(text).replace("\x1b", "").strip()
 
 
-def _op_child_env(token_value: str) -> dict[str, str]:
+def _op_child_env(token_value: str, *, file_auth: bool = False) -> dict[str, str]:
     source_env = get_source_environment()
     env = {k: source_env[k] for k in _OP_ENV_ALLOWLIST if k in source_env}
-    env.update((k, v) for k, v in source_env.items() if k.startswith("OP_SESSION_"))
+    if file_auth:
+        env.pop("OP_CONNECT_HOST", None)
+        env.pop("OP_CONNECT_TOKEN", None)
+        env["OP_LOAD_DESKTOP_APP_SETTINGS"] = "false"
+    else:
+        env.update((k, v) for k, v in source_env.items() if k.startswith("OP_SESSION_"))
     if token_value:
         env["OP_SERVICE_ACCOUNT_TOKEN"] = token_value
     env["NO_COLOR"] = "1"
     return env
 
 
-def _run_op_read(op: Path, reference: str, *, account: str = "", token_value: str = "") -> str:
+def _run_op_read(op: Path, reference: str, *, account: str = "", token_value: str = "",
+                 file_auth: bool = False) -> str:
     """Resolve one ``op://`` reference; raises ``RuntimeError`` on any failure, including
     an exit-0 empty value (applying it would clobber a good credential with ``""``)."""
     cmd: list[str] = [str(op), "read"]
@@ -145,7 +153,7 @@ def _run_op_read(op: Path, reference: str, *, account: str = "", token_value: st
         cmd += ["--account", account]
     cmd += ["--", reference]  # `--` so a reference can never parse as an op flag
 
-    proc = run_cli(cmd, env=_op_child_env(token_value), timeout=_OP_RUN_TIMEOUT, label="op",
+    proc = run_cli(cmd, env=_op_child_env(token_value, file_auth=file_auth), timeout=_OP_RUN_TIMEOUT, label="op",
                    timeout_message=f"op read timed out after {_OP_RUN_TIMEOUT}s for {reference!r}", stdin=None)
 
     if proc.returncode != 0:
@@ -163,6 +171,7 @@ def _run_op_read(op: Path, reference: str, *, account: str = "", token_value: st
 
 def fetch_onepassword_secrets(
     *, references: dict[str, str], account: str = "", token_env: str = _DEFAULT_TOKEN_ENV,
+    token_file: str = "",
     binary: Optional[Path] = None, binary_path: str = "", use_cache: bool = True,
     cache_ttl_seconds: float = 300, home_path: Optional[Path] = None,
 ) -> tuple[dict[str, str], list[str]]:
@@ -176,8 +185,21 @@ def fetch_onepassword_secrets(
     if not valid:
         return {}, warnings
 
-    token_value = get_source_environment().get(token_env, "").strip()
-    cache_key: _CacheKey = (_auth_fingerprint(token_env), account or "",
+    if token_file:
+        path = Path(token_file).expanduser()
+        if not path.is_absolute():
+            if home_path is None:
+                raise RuntimeError("1Password token file requires an absolute path or owning profile home")
+            path = home_path / path
+        try:
+            token_value = path.read_text(encoding="utf-8-sig").strip()
+        except (OSError, UnicodeError):
+            raise RuntimeError("1Password token file unavailable; no alternate identity will be used") from None
+        if not token_value:
+            raise RuntimeError("1Password token file is empty; no alternate identity will be used")
+    else:
+        token_value = get_source_environment().get(token_env, "").strip()
+    cache_key: _CacheKey = (_auth_fingerprint(token_env, token_value=token_value if token_file else None), account or "",
                             str(home_path) if home_path is not None else "", _refs_fingerprint(valid))
 
     if use_cache:
@@ -195,7 +217,8 @@ def fetch_onepassword_secrets(
     read_errors = 0
     for name in sorted(valid):
         try:
-            secrets[name] = _run_op_read(op, valid[name], account=account, token_value=token_value)
+            kwargs = {"file_auth": True} if token_file else {}
+            secrets[name] = _run_op_read(op, valid[name], account=account, token_value=token_value, **kwargs)
         except RuntimeError as exc:
             warnings.append(str(exc))
             read_errors += 1
@@ -216,7 +239,8 @@ def _missing_binary_error(binary_path: str) -> str:
 
 def apply_onepassword_secrets(
     *, enabled: bool, env: Optional[dict[str, str]] = None, account: str = "",
-    service_account_token_env: str = _DEFAULT_TOKEN_ENV, binary_path: str = "",
+    service_account_token_env: str = _DEFAULT_TOKEN_ENV, service_account_token_file: str = "",
+    binary_path: str = "",
     override_existing: bool = True, cache_ttl_seconds: float = 300, home_path: Optional[Path] = None,
 ) -> FetchResult:
     """Resolve configured ``op://`` references and set them on ``os.environ``
@@ -248,6 +272,7 @@ def apply_onepassword_secrets(
     try:
         secrets, fetch_warnings = fetch_onepassword_secrets(
             references=refs_to_fetch, account=account, token_env=service_account_token_env,
+            token_file=service_account_token_file,
             binary=binary, cache_ttl_seconds=cache_ttl_seconds, home_path=home_path)
     except RuntimeError as exc:
         result.error = str(exc)
@@ -291,6 +316,8 @@ class OnePasswordSource(SecretSource):
             "service_account_token_env": {"description": "Env var holding the service-account token "
                                                          "(unset = desktop/interactive session)",
                                           "default": _DEFAULT_TOKEN_ENV},
+            "service_account_token_file": {"description": "Explicit bootstrap file; relative to this profile's home. "
+                                                           "When set, no alternate auth is used", "default": ""},
             "binary_path": {"description": "Pin the op binary (empty = resolve via PATH)", "default": ""},
             "cache_ttl_seconds": {"description": "Disk+memory cache TTL; 0 disables", "default": 300},
             "override_existing": {"description": "Resolved values overwrite .env/shell values", "default": True},
@@ -318,6 +345,7 @@ class OnePasswordSource(SecretSource):
         try:
             secrets, fetch_warnings = fetch_onepassword_secrets(
                 references=valid, account=str(cfg.get("account") or ""), token_env=self.token_env(cfg),
+                token_file=str(cfg.get("service_account_token_file") or ""),
                 binary=binary, cache_ttl_seconds=coerce_float(cfg.get("cache_ttl_seconds", 300), 300.0),
                 home_path=home_path)
         except RuntimeError as exc:
