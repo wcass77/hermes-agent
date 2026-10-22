@@ -555,6 +555,14 @@ def _guess_mime(path: str) -> Optional[str]:
 
 # -- Adapter -------------------------------------------------------------------
 
+def _profile_listener(config: PlatformConfig) -> tuple[str, int]:
+    """Pure endpoint resolution shared by migration, construction and standalone send."""
+    port = _coerce_port(
+        (config.extra or {}).get("sidecar_port") or _get_scoped_secret("PHOTON_SIDECAR_PORT"),
+        _DEFAULT_SIDECAR_PORT)
+    return _DEFAULT_SIDECAR_BIND, port
+
+
 class PhotonAdapter(BasePlatformAdapter):
     """Bidirectional bridge to Photon Spectrum via the Node spectrum-ts sidecar."""
 
@@ -569,9 +577,7 @@ class PhotonAdapter(BasePlatformAdapter):
         self._project_id: str = _get_scoped_secret("PHOTON_PROJECT_ID") or extra.get("project_id") or stored_id or ""
         self._project_secret: str = (
             _get_scoped_secret("PHOTON_PROJECT_SECRET") or extra.get("project_secret") or stored_sec or "")
-        self._sidecar_port = _coerce_port(
-            extra.get("sidecar_port") or _get_scoped_secret("PHOTON_SIDECAR_PORT"), _DEFAULT_SIDECAR_PORT)
-        self._sidecar_bind = _DEFAULT_SIDECAR_BIND
+        self._sidecar_bind, self._sidecar_port = _profile_listener(config)
         self._sidecar_token = _get_scoped_secret("PHOTON_SIDECAR_TOKEN") or secrets.token_hex(16)
         autostart = str(_get_scoped_secret("PHOTON_SIDECAR_AUTOSTART", "true")).lower()
         self._autostart_sidecar = autostart not in ("0", "false", "no")
@@ -1635,8 +1641,7 @@ async def _standalone_send(
 ) -> dict[str, Any]:
     if not HTTPX_AVAILABLE:
         return send_error("httpx not installed")
-    port = _coerce_port(
-        (pconfig.extra or {}).get("sidecar_port") or _get_scoped_secret("PHOTON_SIDECAR_PORT"), _DEFAULT_SIDECAR_PORT)
+    _bind, port = _profile_listener(pconfig)
     token = _get_scoped_secret("PHOTON_SIDECAR_TOKEN")
     if not token:
         token, port, error = _standalone_token_from_record(port)
@@ -1706,6 +1711,7 @@ def register(ctx) -> None:
         setup_fn=_cli.gateway_setup,  # surfaces Photon in the unified `hermes gateway setup` wizard
         env_enablement_fn=_env_enablement, cron_deliver_env_var="PHOTON_HOME_CHANNEL",
         standalone_sender_fn=_standalone_send, allowed_users_env="PHOTON_ALLOWED_USERS",
+        profile_listener_fn=_profile_listener,
         allow_all_env="PHOTON_ALLOW_ALL_USERS", max_message_length=_MAX_MESSAGE_LENGTH, emoji="📱",
         pii_safe=True,  # E.164 phone numbers: redact session descriptions before they reach the LLM
         allow_update_command=True,

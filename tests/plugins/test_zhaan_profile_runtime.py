@@ -21,7 +21,10 @@ from plugins.zhaan_orchestration.shared_update import SharedUpdateService
 from plugins.zhaan_orchestration.store import Store
 
 
-def test_three_discord_owners_keep_conflicting_allowlists(tmp_path, monkeypatch):
+@pytest.mark.parametrize("zhaan_gates", [
+    "DISCORD_ALLOWED_USERS=11\n", "GATEWAY_ALLOWED_USERS=22\n", "DISCORD_ALLOW_ALL_USERS=true\n",
+])
+def test_three_discord_owners_keep_conflicting_allowlists(tmp_path, monkeypatch, zhaan_gates):
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     root = tmp_path / ".hermes"
     root.mkdir()
@@ -37,7 +40,7 @@ def test_three_discord_owners_keep_conflicting_allowlists(tmp_path, monkeypatch)
         home = root / "profiles" / name
         home.mkdir(parents=True)
         (home / "config.yaml").write_text("{}\n")
-        (home / ".env").write_text(f"DISCORD_ALLOWED_USERS={user}\n")
+        (home / ".env").write_text(zhaan_gates if name == "zhaan" else f"DISCORD_ALLOWED_USERS={user}\n")
         if name == "zhaan":
             people = home / "workspace/config/people.yaml"
             people.parent.mkdir(parents=True)
@@ -60,15 +63,46 @@ def test_three_discord_owners_keep_conflicting_allowlists(tmp_path, monkeypatch)
                 adapter.set_owner_profile(name)
                 runner._profile_adapters[name] = {Platform.DISCORD: adapter}
                 adapter.set_authorization_check(runner._make_adapter_auth_check(Platform.DISCORD, name))
+                adapter._snapshot_gate_env()
+                adapter._allowed_user_ids = adapter._get_allowed_users()
                 assert adapter._get_allowed_users() == {user}
         # Callbacks run with no owning turn on the stack: each must rebind its home.
         for name, adapters in runner._profile_adapters.items():
             adapter = adapters[Platform.DISCORD]
             for owner, user in ids.items():
                 assert adapter._is_sender_authorized(user, "group", "shared-channel") is (owner == name)
+                assert adapter._authorization_check(user, "group", "shared-channel") is (owner == name)
+        zhaan = runner._profile_adapters["zhaan"][Platform.DISCORD]
+        zhaan.config.extra["allow_from"] = []
+        assert zhaan._authorization_check("33", "group", "shared-channel") is False
         assert os.environ == before
     finally:
         set_multiplex_active(False)
+
+
+@pytest.mark.parametrize("standalone", [True, False])
+def test_weekly_identity_matches_owning_gateway_mode(tmp_path, monkeypatch, standalone):
+    from gateway.session import SessionStore
+    from hermes_cli.gateway_multiplex_mode import standalone_launcher_decision
+    import hermes_cli.gateway_multiplex_served as served
+    from plugins.zhaan_orchestration.shared_update import configured_service
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    root = tmp_path / ".hermes"
+    home = root / "profiles/zhaan"
+    home.mkdir(parents=True)
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    (root / "config.yaml").write_text("gateway: {multiplex_profiles: true}\n")
+    (home / "config.yaml").write_text(yaml.safe_dump({"gateway": {"standalone": standalone},
+        "plugins": {"entries": {"zhaan_orchestration": {"coordination_channel_id": "family"}}}}))
+    roster = ["default", "pilot", "scorpius"] + ([] if standalone else ["zhaan"])
+    monkeypatch.setattr(served, "recorded_served_profiles", lambda *a: roster)
+    with _profile_runtime_scope(home, hydrate_secrets=False):
+        runtime_config = GatewayConfig(multiplex_profiles=True)
+        standalone_launcher_decision(runtime_config)
+        store = object.__new__(SessionStore)
+        store.config = runtime_config
+        assert configured_service().profile == store._resolve_profile_for_key()
 
 
 def test_weekly_copy_adopts_legacy_identity_without_losing_archive_or_receipts(tmp_path):

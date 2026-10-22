@@ -9,6 +9,10 @@ class ParticipantDiscordAdapter(DiscordAdapter):
     def _get_allowed_users(self) -> set:
         return set(self.config.extra["allow_from"])
 
+    def authorization_user_ids(self) -> set[str]:
+        """The People Registry is authoritative at both gateway authorization gates."""
+        return self._get_allowed_users()
+
     def _is_sender_authorized(self, user_id, chat_type=None, chat_id=None, **kwargs):
         if str(user_id or "") not in self._get_allowed_users():
             return False

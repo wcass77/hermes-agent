@@ -248,6 +248,21 @@ class SharedUpdateService:
                     close()
 
 
+def _weekly_session_profile() -> str | None:
+    """Match this profile's gateway, including a standalone beside another multiplexer."""
+    from hermes_cli.gateway_multiplex_mode import default_gateway_multiplexes
+    from hermes_cli.gateway_multiplex_served import recorded_served_profiles
+    from hermes_cli.profiles import get_active_profile_name, profile_is_standalone
+
+    if profile_is_standalone(get_hermes_home()):
+        return None
+    profile = get_active_profile_name()
+    served = recorded_served_profiles()
+    if served is not None:
+        return profile if profile in served else None
+    return profile if default_gateway_multiplexes() else None
+
+
 def configured_service() -> SharedUpdateService:
     from hermes_cli.config import load_config
 
@@ -267,13 +282,10 @@ def configured_service() -> SharedUpdateService:
     workspace = Path(get_secret_str(
         "ZHAAN_WORKSPACE", str(get_hermes_home() / "workspace"),
     ))
-    from hermes_cli.gateway_multiplex_mode import default_gateway_multiplexes
-    from hermes_cli.profiles import get_active_profile_name
-    profile = get_active_profile_name() if default_gateway_multiplexes() else None
     return SharedUpdateService(
         Store(state), workspace, channel_id=channel_id,
         timezone=str(config.get("timezone") or "America/New_York"),
-        profile=profile,
+        profile=_weekly_session_profile(),
     )
 
 

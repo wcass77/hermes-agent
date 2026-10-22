@@ -1918,6 +1918,15 @@ The gateway captures the claim during construction in the owning profile scope;
 detached startup/reconnect passes retain it. TCP endpoint identity is shared with
 built-in sidecars such as Photon, so different platforms cannot claim the same endpoint.
 
+An adapter backed by an authoritative user registry can implement
+`authorization_user_ids() -> set[str] | None`. A set (including an empty set)
+replaces the gateway's env, pairing and role grants for that receiving adapter;
+`None` retains ordinary authorization. The gateway evaluates it for both inbound
+messages and off-turn component callbacks using live transport provenance. The
+callback must be local, side-effect free and independent of the gateway's own
+authorization callback to avoid recursion. The bot loop guard still applies.
+Zhaan's Participant adapter uses this seam without modifying process env.
+
 ### Memory provider plugins — add a cross-session knowledge backend
 
 Drop an implementation of `MemoryProvider` into `plugins/memory/<name>/`:
