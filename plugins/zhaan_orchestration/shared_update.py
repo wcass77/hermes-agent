@@ -250,15 +250,23 @@ class SharedUpdateService:
 
 def _weekly_session_profile() -> str | None:
     """Use live ownership first; config saves can precede gateway reconciliation."""
+    from gateway.status import get_runtime_status_running_pid, read_runtime_status
     from hermes_cli.gateway_multiplex_mode import default_gateway_multiplexes
     from hermes_cli.gateway_multiplex_served import recorded_served_profiles
     from hermes_cli.profiles import get_active_profile_name, profile_is_standalone
 
     profile = get_active_profile_name()
+    home = get_hermes_home()
+    runtime = read_runtime_status(home / "gateway_state.json") or {}
+    if get_runtime_status_running_pid(runtime, expected_home=home) is not None:
+        served = runtime.get("served_profiles")
+        if not isinstance(served, list):
+            raise RuntimeError("The live gateway has not recorded its session mode; retry after startup")
+        return profile if profile in served else None
     served = recorded_served_profiles()
     if served is not None:
         return profile if profile in served else None
-    if profile_is_standalone(get_hermes_home()):
+    if profile_is_standalone(home):
         return None
     return profile if default_gateway_multiplexes() else None
 
