@@ -80,8 +80,9 @@ def test_three_discord_owners_keep_conflicting_allowlists(tmp_path, monkeypatch,
         set_multiplex_active(False)
 
 
+@pytest.mark.parametrize("live_roster", [True, False])
 @pytest.mark.parametrize("standalone", [True, False])
-def test_weekly_identity_matches_owning_gateway_mode(tmp_path, monkeypatch, standalone):
+def test_weekly_identity_matches_owning_gateway_mode(tmp_path, monkeypatch, standalone, live_roster):
     from gateway.session import SessionStore
     from hermes_cli.gateway_multiplex_mode import standalone_launcher_decision
     import hermes_cli.gateway_multiplex_served as served
@@ -96,13 +97,58 @@ def test_weekly_identity_matches_owning_gateway_mode(tmp_path, monkeypatch, stan
     (home / "config.yaml").write_text(yaml.safe_dump({"gateway": {"standalone": standalone},
         "plugins": {"entries": {"zhaan_orchestration": {"coordination_channel_id": "family"}}}}))
     roster = ["default", "pilot", "scorpius"] + ([] if standalone else ["zhaan"])
-    monkeypatch.setattr(served, "recorded_served_profiles", lambda *a: roster)
+    monkeypatch.setattr(served, "recorded_served_profiles", lambda *a: roster if live_roster else None)
     with _profile_runtime_scope(home, hydrate_secrets=False):
         runtime_config = GatewayConfig(multiplex_profiles=True)
         standalone_launcher_decision(runtime_config)
         store = object.__new__(SessionStore)
         store.config = runtime_config
         assert configured_service().profile == store._resolve_profile_for_key()
+
+
+@pytest.mark.parametrize("live_multiplex", [True, False])
+def test_weekly_history_keeps_live_namespace_during_config_transition(tmp_path, monkeypatch, live_multiplex):
+    from gateway.session import SessionSource, SessionStore
+    import hermes_cli.gateway_multiplex_served as served
+    from plugins.zhaan_orchestration.shared_update import configured_service
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    root = tmp_path / ".hermes"
+    home = root / "profiles/zhaan"
+    home.mkdir(parents=True)
+    monkeypatch.setenv("HERMES_HOME", str(root))
+    (root / "config.yaml").write_text("gateway: {multiplex_profiles: true}\n")
+    config = {"gateway": {"standalone": not live_multiplex}, "plugins": {"entries": {
+        "zhaan_orchestration": {"coordination_channel_id": "family"}}}}
+    (home / "config.yaml").write_text(yaml.safe_dump(config))
+    roster = ["default", "pilot", "scorpius"] + (["zhaan"] if live_multiplex else [])
+    monkeypatch.setattr(served, "recorded_served_profiles", lambda *a: roster)
+    store = object.__new__(SessionStore)
+    store.config = GatewayConfig(multiplex_profiles=live_multiplex)
+    source = SessionSource(platform=Platform.DISCORD, chat_id="family", chat_type="group", profile="zhaan")
+    with _profile_runtime_scope(home, hydrate_secrets=False):
+        assert configured_service().profile == store._resolve_profile_for_key(source)
+        # The config save precedes runtime reconciliation; an existing turn keeps its store mode.
+        config["gateway"]["standalone"] = live_multiplex
+        (home / "config.yaml").write_text(yaml.safe_dump(config))
+        path = tmp_path / "state.db"
+        db = SessionDB(path)
+        key = store._generate_session_key(source)
+        db.create_session("live-weekly", "discord", session_key=key, chat_id="family", chat_type="group")
+        db.append_message("live-weekly", "user", "Synthetic existing weekly context")
+        db.close()
+        service = configured_service()
+        service._session_db_factory_override = lambda: SessionDB(path)
+        service._send_message_override = lambda *a: {"success": True, "message_id": "synthetic-receipt"}
+        receipt = service.post("Synthetic transition update")
+        db = SessionDB(path)
+        try:
+            assert receipt["success"] and receipt["session_id"] == "live-weekly"
+            assert db.get_session("live-weekly")["session_key"] == key
+            assert [row["content"] for row in db.get_messages("live-weekly")] == [
+                "Synthetic existing weekly context", "Synthetic transition update"]
+        finally:
+            db.close()
 
 
 def test_weekly_copy_adopts_legacy_identity_without_losing_archive_or_receipts(tmp_path):

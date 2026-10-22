@@ -249,17 +249,17 @@ class SharedUpdateService:
 
 
 def _weekly_session_profile() -> str | None:
-    """Match this profile's gateway, including a standalone beside another multiplexer."""
+    """Use live ownership first; config saves can precede gateway reconciliation."""
     from hermes_cli.gateway_multiplex_mode import default_gateway_multiplexes
     from hermes_cli.gateway_multiplex_served import recorded_served_profiles
     from hermes_cli.profiles import get_active_profile_name, profile_is_standalone
 
-    if profile_is_standalone(get_hermes_home()):
-        return None
     profile = get_active_profile_name()
     served = recorded_served_profiles()
     if served is not None:
         return profile if profile in served else None
+    if profile_is_standalone(get_hermes_home()):
+        return None
     return profile if default_gateway_multiplexes() else None
 
 
