@@ -5,6 +5,8 @@ docs of config.yaml.
 """
 
 
+from hermes_cli.config_default_helpers import auxiliary_defaults
+
 #: Image every container terminal backend (docker/modal/daytona/singularity) uses unless the
 #: user pins one. LEGACY_SANDBOX_IMAGES are the plain defaults that preceded the desktop stack
 #: (the 3.14 pin shipped between the two without a migration); a saved config still holding one
@@ -15,19 +17,6 @@ LEGACY_SANDBOX_IMAGE = LEGACY_SANDBOX_IMAGES[0]
 # Vercel Sandbox managed image (Vercel deprecated its `runtime` presets in Aug 2026).
 DEFAULT_VERCEL_IMAGE = "vercel/sandbox/universal:latest"
 LEGACY_VERCEL_RUNTIME = "node24"  # the seeded pre-49 default, never a user choice
-
-
-def _aux(timeout, *, reasoning_effort=True, **extra):
-    """Standard auxiliary-task model block (see DEFAULT_CONFIG["auxiliary"]).
-
-    reasoning_effort=False omits that key (MoA blocks configure depth per slot);
-    ``extra`` keys are appended after the standard ones.
-    """
-    d = {"provider": "auto", "model": "", "base_url": "", "api_key": "", "timeout": timeout, "extra_body": {}}
-    if reasoning_effort:
-        d["reasoning_effort"] = ""
-    d.update(extra)
-    return d
 
 
 DEFAULT_CONFIG = {
@@ -280,11 +269,11 @@ DEFAULT_CONFIG = {
         # Model name (any reasonable spelling) -> effort level; overrides agent.reasoning_effort
         # when the current model matches. Edit in config.yaml (no CLI support: dots in keys).
         "reasoning_overrides": {},
-        # Preserve assistant `reasoning_content` on history replay. Echo families (DeepSeek,
-        # Kimi/Moonshot, Xiaomi MiMo) are auto-detected by provider name/base-URL host; custom
-        # providers and OpenAI-compatible gateways proxying them are not. Set `reasoning_echo: true`
-        # on a `model:` entry or a `fallback_providers:` entry to opt in per provider. Default
-        # false: strict providers (Mistral, Groq, Cerebras) reject the field.
+        # Stored reasoning is replayed to every provider that can read it by default. This flag
+        # only adds the must-echo " " pad on reasoning-less tool-call turns, which DeepSeek,
+        # Kimi/Moonshot and Xiaomi MiMo require (auto-detected by provider name/host). Set
+        # `reasoning_echo: true` on a `model:` or `fallback_providers:` entry for a custom gateway
+        # proxying one of them. Strict providers (Mistral, Groq, Cerebras) never get the field.
         "reasoning_echo": False,
         # Turn liveness watchdog: a turn with no observable progress for `timeout_s` seconds is
         # logged, force-interrupted so the UI can retry, and its lease stops renewing so stale-turn
@@ -386,8 +375,8 @@ DEFAULT_CONFIG = {
         "docker_snap_compat": False,
         # Trusted profiles sharing one Docker container identity; empty = per-profile boundary.
         "docker_shared_container_key": "",
-        # Keep a long-lived bash shell across execute() calls so cwd/env/shell variables survive.
-        # Applies to non-local backends (SSH); local is opt-in via TERMINAL_LOCAL_PERSISTENT env.
+        # SSH: carry exported env vars between commands (cwd always carries). false = every command
+        # starts from the login env, profile functions included. Local: TERMINAL_LOCAL_PERSISTENT.
         "persistent_shell": True,
     },
 
@@ -756,20 +745,20 @@ DEFAULT_CONFIG = {
         # overrides provider; api_key falls back to OPENAI_API_KEY; reasoning_effort:
         # none|minimal|low|medium|high|xhigh|max|ultra ("" = provider default); extra_body =
         # OpenAI-compatible request fields. Vision: download_timeout = image HTTP download (s).
-        "vision": _aux(120, download_timeout=30),
+        "vision": auxiliary_defaults(120, download_timeout=30),
         # web_extract and session_search no longer use an aux LLM; leftover blocks in user config
         # are ignored. Compression: raise timeout for local models. no_progress_timeout:
         # seconds a streamed call goes without a substantive chunk before it fails fast into
         # retry/fallback; None = built-in 60s default. Independent of "timeout" (the overall request
         # budget) — raising "timeout" alone does not widen this window. See #108104.
-        "compression": _aux(120, no_progress_timeout=None),
-        "skills_hub": _aux(30),
-        "approval": _aux(30),   # classifier — a fast/cheap model is recommended
+        "compression": auxiliary_defaults(120, no_progress_timeout=None),
+        "skills_hub": auxiliary_defaults(30),
+        "approval": auxiliary_defaults(30),   # classifier — a fast/cheap model is recommended
         # /review reviewer: a full subagent on the async delegation rail, credentials resolved like
         # delegation.provider pins. "auto" + "" = main agent's model. api_mode forces transport:
         # chat_completions | anthropic_messages | codex_responses.
         "review": {"provider": "auto", "model": "", "base_url": "", "api_key": "", "api_mode": ""},
-        "mcp": _aux(30),
+        "mcp": auxiliary_defaults(30),
         # prefer_fast_model opts in to the provider fast tier; auto otherwise = main model.
         "title_generation": {
             "enabled": True,
@@ -785,19 +774,19 @@ DEFAULT_CONFIG = {
             "reasoning_effort": "",
             "language": "",
         },
-        "memory_query_rewrite": _aux(8, reasoning_effort=False),
-        "tts_audio_tags": _aux(30),
-        "voice_chat": {**_aux(120), "reasoning_effort": "none"},  # agent/voice_turn_route.py; off = lowest valid
+        "memory_query_rewrite": auxiliary_defaults(8, reasoning_effort=False),
+        "tts_audio_tags": auxiliary_defaults(30),
+        "voice_chat": {**auxiliary_defaults(120), "reasoning_effort": "none"},  # agent/voice_turn_route.py; off = lowest valid
         # Kanban: triage_specifier expands a Triage one-liner into a spec (cheap model OK);
         # kanban_decomposer emits a JSON graph of child tasks (more tokens).
-        "triage_specifier": _aux(120),
-        "kanban_decomposer": _aux(180),
-        "profile_describer": _aux(60),   # 1-2 sentence profile blurb; short, cheap
-        "goal_judge": _aux(60),          # /goal satisfaction + contract drafting; JSON calls
+        "triage_specifier": auxiliary_defaults(120),
+        "kanban_decomposer": auxiliary_defaults(180),
+        "profile_describer": auxiliary_defaults(60),   # 1-2 sentence profile blurb; short, cheap
+        "goal_judge": auxiliary_defaults(60),          # /goal satisfaction + contract drafting; JSON calls
         # Curator skill-usage review can take minutes on reasoning models (umbrellas over hundreds
         # of skills); route cheaper via `hermes model` → auxiliary → Curator.
-        "curator": _aux(600),
-        "monitor": _aux(60),   # important-mail 0-10 scorer; high-volume, small model fine
+        "curator": auxiliary_defaults(600),
+        "monitor": auxiliary_defaults(60),   # important-mail 0-10 scorer; high-volume, small model fine
         # Post-turn self-improvement fork (save memory / patch skill). "auto" = main model replaying
         # the full conversation (warm cache); other models replay a compact digest (~3-5x cheaper).
         # enabled=false skips auto spawns (/refine still works). An explicit max_input_tokens caps
@@ -808,11 +797,11 @@ DEFAULT_CONFIG = {
         # conversation's reasoning config verbatim so its request bytes keep the parent's warm
         # prompt-cache prefix (#30532). Set provider/model below to route the review to another model
         # if you want a different effort level; a one-time warning says so when the key is set.
-        "background_review": {"enabled": True, **_aux(120)},
+        "background_review": {"enabled": True, **auxiliary_defaults(120)},
         # No reasoning_effort on MoA blocks by design — configured PER SLOT in the preset
         # (moa.presets.<name>.reference_models[].reasoning_effort / aggregator.reasoning_effort).
-        "moa_reference": _aux(900, reasoning_effort=False),
-        "moa_aggregator": _aux(900, reasoning_effort=False),
+        "moa_reference": auxiliary_defaults(900, reasoning_effort=False),
+        "moa_aggregator": auxiliary_defaults(900, reasoning_effort=False),
     },
 
     "display": {
@@ -1311,6 +1300,7 @@ DEFAULT_CONFIG = {
     "memory": {  # Persistent memory — bounded curated memory injected into the system prompt
         "memory_enabled": True,
         "user_profile_enabled": True,
+        "prefetch_spill_enabled": False,  # External recall opt-in to hooks.output_spill.
         # Approval gate for memory writes on BOTH foreground turns and the background review fork.
         # true = foreground writes prompt inline; background writes are staged (/memory
         # pending|approve <id>|reject <id>). To disable memory: memory_enabled.
@@ -1319,9 +1309,8 @@ DEFAULT_CONFIG = {
         "user_char_limit": 1375,     # ~500 tokens at 2.75 chars/token
         # Periodic built-in memory review; 0 when an external provider auto-extracts.
         "nudge_interval": 10,
-        # External memory provider plugin (empty = built-in only); only ONE at a time: "holographic",
-        # "retaindb", "byterover", or a catalog-installed one ("honcho", "hindsight", "supermemory",
-        # "mem0", "openviking").
+        # One external provider: bundled (retaindb, byterover) or catalog-installed (honcho,
+        # hindsight, supermemory, mem0, openviking, holographic). Empty = built-in only.
         "provider": "",
     },
     # Subagent delegation — override the provider:model used by delegate_task so children run on a
@@ -1776,6 +1765,8 @@ DEFAULT_CONFIG = {
         # dials them instead of rejecting them as private. Empty = normal private-address verdict.
         "fake_ip_ranges": [],
         "redact_secrets": True,
+        # Ordinary terminal/file results only; credential guards and diagnostics remain separate.
+        "ordinary_output": "redact",  # "fidelity" preserves ordinary content; restart to apply.
         # Persisted acknowledgement for unattended model overrides whose tier lets the vendor train
         # on prompts. The startup guard still warns every run; cost guards are unaffected.
         "allow_data_training_tiers_noninteractive": False,
@@ -2020,11 +2011,11 @@ DEFAULT_CONFIG = {
             # tool eager. The runtime fallback in tools/tool_search.py derives from this value.
             "defer": [
                 "computer_use", "session_search", "image_generate",
-                "todo_list", "process_manage", "cronjob_manage",
+                "todo_list", "process_manage", "cronjob_manage", "browser_vault",
                 # Desktop GUI surface (desktop_ui, project and catalog toolsets)
                 "drive_preview", "gui_tour", "desktop_preview", "annotate_preview", "manage_catalog",
                 "show_tip", "desktop_project", "close_terminal",
-                "apply_layout", "read_terminal", "read_window_below", "focus_pane",
+                "set_theme", "read_terminal", "read_window_below", "focus_pane",
             ],
         },
         # Remote connector discovery/lifecycle through the Nous tool gateway.
@@ -2322,12 +2313,12 @@ DEFAULT_CONFIG = {
         # per session, so full-DB backups of small sessions work.
         "max_export_messages": 20000,
     },
-    # First-touch onboarding hints (agent/onboarding.py). Each hint shows once and is latched under
-    # `seen`; wipe the section to re-see all hints.
+    # First-touch onboarding hints (agent/onboarding.py), each latched under `seen` once shown.
     "onboarding": {
         "seen": {},
-        # First-ever message: ask = offer; off = plain intro only.
-        "profile_build": "ask",
+        "profile_build": "ask",  # first-ever message: ask = offer; off = plain intro only
+        # Desktop first run, root profile only (onboarding_run.py): None = fresh install; true = next launch; false = done
+        "run": None,
     },
     # Privacy-safe aggregate metrics in this profile's local telemetry dir. Collection (`enabled`)
     # and transmission to Nous (`send`) are SEPARATE opt-ins; see
@@ -2448,7 +2439,7 @@ DEFAULT_CONFIG = {
     },
     # External secret sources — pull credentials from secret managers at startup instead of storing
     # them in ~/.hermes/.env.
-    # Browser credential vault: which login sources browser_vault_list/fill may draw from. The local
+    # Browser credential vault: which login sources browser_vault may draw from. The local
     # encrypted vault (`hermes vault add`, Desktop → Settings → Credential Vault) is always on.
     # External password managers are unlocked per session with a masked master-password prompt;
     # headless sessions (cron, webhook, API) never prompt and see them as locked.
@@ -2496,9 +2487,9 @@ DEFAULT_CONFIG = {
             "env": {},  # env-var name → op://vault/item/field; each resolved with one `op read`.
             # Account shorthand / sign-in address for `op read --account`; empty = default.
             "account": "",
-            # Env var holding a service-account token for headless auth (exported to op as
-            # OP_SERVICE_ACCOUNT_TOKEN). Unset = interactive/desktop op session.
+            # Headless token env (exported to op as OP_SERVICE_ACCOUNT_TOKEN); unset = interactive auth.
             "service_account_token_env": "OP_SERVICE_ACCOUNT_TOKEN",
+            "service_account_token_file": "",  # Explicit bootstrap; relative paths use this profile's home.
             # Absolute path to op, used verbatim (avoids trusting PATH). Empty = PATH.
             "binary_path": "",
             # Seconds to cache values in-process and on disk; 0 disables BOTH layers.
@@ -3021,14 +3012,6 @@ OPTIONAL_ENV_VARS = {
         "OpenViking API key", tools=["viking_search"]),
     "OPENVIKING_ENDPOINT": _tool("OpenViking server URL (default: http://127.0.0.1:1933)",
         "OpenViking endpoint", password=None, advanced=True),
-    # ── Langfuse observability ──
-    "HERMES_LANGFUSE_PUBLIC_KEY": _tool("Langfuse project public key (pk-lf-...)",
-        "Langfuse public key", "https://cloud.langfuse.com", password=False),
-    "HERMES_LANGFUSE_SECRET_KEY": _tool("Langfuse project secret key (sk-lf-...)",
-        "Langfuse secret key", "https://cloud.langfuse.com"),
-    "HERMES_LANGFUSE_BASE_URL": _tool("Langfuse server URL (default: https://cloud.langfuse.com)",
-        "Langfuse server URL (leave empty for cloud.langfuse.com)", None, password=False,
-        advanced=True),
     # ── Messaging platforms ──
     "TELEGRAM_BOT_TOKEN": _msg(
         "Complete Telegram bot token created by @BotFather (numeric bot ID followed by a colon "

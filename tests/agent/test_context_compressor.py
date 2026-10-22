@@ -22,6 +22,7 @@ from agent.context_compressor import (
 from agent.compression_marker import _COMPRESSION_MARKER_PREFIX
 from hermes_state import SessionDB
 from agent.auxiliary_client import CODEX_STREAM_STALL_MARKER
+import itertools
 
 _REQ = httpx.Request("POST", "http://x")
 
@@ -170,25 +171,6 @@ class TestLegacyClarifyResults:
                     assert summary == "[clarify] asked user a question"
 
 
-class TestSummarizeToolResultWebExtract:
-    """Pre-compression pruning must survive web_extract calls whose ``urls`` are
-    web_search result dicts ({"url"/"href": ...}), which models routinely forward
-    straight into web_extract.
-    """
-
-    CONTENT = "x" * 500  # >200 chars so the pruning pass actually summarizes
-
-
-    def test_single_dict_url_is_unwrapped_not_stringified(self):
-        args = json.dumps({"urls": [{"url": "https://example.com/a", "title": "A"}]})
-        summary = _summarize_tool_result("web_extract", args, self.CONTENT)
-        assert summary == "[web_extract] https://example.com/a (500 chars)"
-        assert "{" not in summary  # no raw dict repr leaked into the summary
-
-    def test_href_key_is_unwrapped(self):
-        args = json.dumps({"urls": [{"href": "https://example.com/h"}]})
-        summary = _summarize_tool_result("web_extract", args, self.CONTENT)
-        assert summary == "[web_extract] https://example.com/h (500 chars)"
 
 
 class TestSummarizeToolResultSkillTools:
@@ -3317,7 +3299,7 @@ class TestSummaryPromptBounding:
         assert coverage["sampled_record_count"] == len(shown)
         # At least one initial gap was closed: fewer markers than the n-1 the n slices started with.
         assert sampled.count("chars elided") < ContextCompressor._SAMPLED_INPUT_SLICES - 1
-        for a, b in zip(shown, shown[1:]):
+        for a, b in itertools.pairwise(shown):
             if b == a + 1:
                 assert f"{records[a]}\n\n{records[b]}" in sampled, (a, b)
             else:

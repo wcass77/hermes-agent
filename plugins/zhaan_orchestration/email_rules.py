@@ -239,7 +239,7 @@ def canonical_email_fingerprint(message: dict[str, Any]) -> str:
 
 
 def _frontmatter(path: Path) -> tuple[dict[str, Any], str]:
-    text = path.read_text(encoding="utf-8")
+    text = path.read_text(encoding="utf-8-sig")
     lines = text.splitlines()
     if not lines or lines[0].strip() != "---":
         raise ValueError("missing opening YAML front matter delimiter")

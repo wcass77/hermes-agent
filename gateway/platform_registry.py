@@ -118,6 +118,9 @@ class PlatformEntry:
     # Env prefixes shared with a non-channel capability (the same plugin's tools): profile clones
     # strip keys under them only when the source profile runs the adapter (profile_channels.py).
     shared_env_prefixes: tuple = ()
+    # Explicit per-profile listener retained under multiplex (not a shared /p/ ingress).
+    # Pure ``(PlatformConfig) -> (host, port) | None``; preflight and runtime use the same claim.
+    profile_listener_fn: Optional[Callable[[Any], Optional[tuple[str, int]]]] = None
 
 
 def core_ships_platform(name: str) -> bool:

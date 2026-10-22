@@ -129,7 +129,7 @@ class GatewaySessionCommandsMixin:
             await asyncio.wait_for(
                 self._run_housekeeping_in_executor(self._cleanup_agent_resources, _old_agent),
                 timeout=_RESET_CLEANUP_TIMEOUT_S)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning(
                 "Agent resource cleanup for session %s exceeded %ss during /new reset; proceeding with "
                 "reset (the worker thread is left to finish on its own). (#35994)",
@@ -145,14 +145,15 @@ class GatewaySessionCommandsMixin:
         arbitrarily), then session:end and session:reset."""
         platform_value = source.platform.value if source.platform else ""
         with contextlib.suppress(Exception):
-            await self._finalize_session_off_loop(
+            messages = await self._finalize_session_off_loop(
                 session_id=old_sid, platform=platform_value, reason="new_session",
                 old_session_id=old_sid, new_session_id=new_sid)
+            await self._deliver_session_end_messages(messages, source=source, session_key=session_key)
         hook_payload = {"platform": platform_value, "user_id": source.user_id, "session_key": session_key}
         await self.hooks.emit("session:end", dict(hook_payload))
         await self.hooks.emit("session:reset", dict(hook_payload))
 
-    async def _handle_reset_command(self, event: MessageEvent) -> Union[str, EphemeralReply]:
+    async def _handle_reset_command(self, event: MessageEvent) -> str | EphemeralReply:
         """Handle /new or /reset command."""
         source = event.source
         session_key = self._session_key_for_source(source)
@@ -719,8 +720,8 @@ class GatewaySessionCommandsMixin:
             SAVE_USAGE, default_save_filename, load_save_snapshot, normalize_save_format, render_session_for_save)
 
         parts = event.get_command_args().split()
-        redact = bool(parts) and parts[-1].lower() in ("redact", "--redact")
-        if redact:
+        redact = not (parts and parts[-1].lower() == "--no-redact")
+        if parts and parts[-1].lower() in ("redact", "--redact", "--no-redact"):
             parts = parts[:-1]
         if not parts:
             return SAVE_USAGE
@@ -745,15 +746,12 @@ class GatewaySessionCommandsMixin:
             return str(e)
         if not export_data:
             return t("gateway.save.no_messages", session_id=session_id)
-        if redact:
-            from hermes_cli.session_export_md import redact_session_data
-            export_data = redact_session_data(export_data)
         temp_dir = tempfile.mkdtemp(prefix="hermes_save_")
         temp_path = os.path.join(temp_dir, filename)
         try:
             # Off-loop: render + write scale with transcript size (multi-MB) and would stall the loop.
             def _render_and_write() -> None:
-                rendered = render_session_for_save(export_data, fmt)
+                rendered = render_session_for_save(export_data, fmt, redact=redact)
                 with open(temp_path, "w", encoding="utf-8") as f:
                     f.write(rendered)
 

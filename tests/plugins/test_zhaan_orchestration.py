@@ -60,7 +60,7 @@ def test_disabled_by_default_registers_no_tools(tmp_path, monkeypatch):
 def test_signature_timestamp_and_replay_queue(tmp_path):
     secret_raw = b"test secret"
     secret = "whsec_" + base64.b64encode(secret_raw).decode()
-    now = dt.datetime.now(dt.timezone.utc)
+    now = dt.datetime.now(dt.UTC)
     timestamp = str(int(now.timestamp()))
     body = json.dumps({"event_id": "evt", "message": {"message_id": "msg", "thread_id": "thr", "inbox_id": "in"}}).encode()
     webhook_id = "wh_1"
@@ -197,7 +197,7 @@ def test_discord_unknown_user_is_dropped(tmp_path, monkeypatch):
     }
 
 
-def test_register_derives_core_discord_allowlist_from_people(tmp_path, monkeypatch):
+def test_register_derives_adapter_discord_allowlist_from_people(tmp_path, monkeypatch):
     people = tmp_path / "people.yaml"
     people.write_text(yaml.safe_dump({"people": [
         {"id": "willy", "participant": True, "channels": {"discord_user_id": "42"}},
@@ -209,14 +209,21 @@ def test_register_derives_core_discord_allowlist_from_people(tmp_path, monkeypat
     monkeypatch.setattr(plugin, "_start_server", lambda: None)
     hooks = []
     tools = []
+    platforms = []
     context = type("Context", (), {
         "register_hook": lambda self, name, hook: hooks.append((name, hook)),
         "register_tool": lambda self, **kwargs: tools.append(kwargs),
+        "register_platform": lambda self, **kwargs: platforms.append(kwargs),
     })()
 
     plugin.register(context)
 
-    assert os.environ["DISCORD_ALLOWED_USERS"] == "42,7"
+    assert "DISCORD_ALLOWED_USERS" not in os.environ
+    from gateway.config import PlatformConfig
+    adapter = platforms[0]["adapter_factory"](PlatformConfig(token="synthetic-discord"))
+    assert adapter._get_allowed_users() == {"42", "7"}
+    assert adapter.config.extra["allow_from"] == ["42", "7"]
+    assert adapter._is_sender_authorized("outsider", "group", "main") is False
     assert hooks == [("pre_gateway_dispatch", plugin.pre_gateway_dispatch)]
     assert [item["name"] for item in tools] == ["post_shared_update", "return_archived_document"]
     schema = tools[0]["schema"]["parameters"]
@@ -238,6 +245,7 @@ def test_register_starts_ingress_only_in_gateway(tmp_path, monkeypatch):
     context = type("Context", (), {
         "register_hook": lambda self, *_: None,
         "register_tool": lambda self, **_: None,
+        "register_platform": lambda self, **_: None,
     })()
 
     monkeypatch.delenv("_HERMES_GATEWAY", raising=False)
@@ -420,7 +428,7 @@ class FakeSessionDB:
             "id": session_id,
             "started_at": dt.datetime(
                 week_start.year, week_start.month, week_start.day, 21, 30,
-                tzinfo=dt.timezone.utc,
+                tzinfo=dt.UTC,
             ).timestamp(),
         }
 
@@ -461,7 +469,7 @@ def test_shared_update_uses_one_main_channel_weekly_session_and_mirrors(tmp_path
         store, tmp_path, channel_id="123", send_message=send,
         session_db_factory=lambda: db,
     )
-    instant = dt.datetime(2026, 8, 4, 16, tzinfo=dt.timezone.utc)
+    instant = dt.datetime(2026, 8, 4, 16, tzinfo=dt.UTC)
     first = service.post("School closes at 2 PM.", now=instant)
     second = service.post("Pickup is at the west door.", now=instant)
 
@@ -511,7 +519,7 @@ def test_shared_update_reports_visible_but_unmirrored_partial_failure(tmp_path):
         session_db_factory=lambda: db,
     )
     result = service.post(
-        "Update", now=dt.datetime(2026, 8, 4, 16, tzinfo=dt.timezone.utc)
+        "Update", now=dt.datetime(2026, 8, 4, 16, tzinfo=dt.UTC)
     )
     assert not result["success"]
     assert result["discord_sent"]

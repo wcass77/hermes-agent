@@ -124,7 +124,7 @@ def relaunch(
     if sys.platform == "win32":
         import subprocess
         try:
-            result = subprocess.run(new_argv)
+            result = subprocess.run(new_argv, check=False)  # health: allow HX006 -- Windows replacement process owns the foreground Hermes session lifetime
             sys.exit(result.returncode)
         except KeyboardInterrupt:
             sys.exit(130)

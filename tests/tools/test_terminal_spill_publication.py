@@ -74,9 +74,7 @@ def test_capped_capture_is_not_described_as_full_output(tmp_path):
     collector.append("x" * 40)
     collector.append("y" * 100)
     captured = _finalize_wait_result(collector, collector.render(), 7)
-    result = finish_spill(host, object(), **{
-        "output_capture_complete": captured["output_capture_complete"],
-    })
+    result = finish_spill(host, object(), output_capture_complete=captured["output_capture_complete"])
     assert result["output_capture_complete"] is False
     assert "incomplete" in result["truncation_note"]
     assert "Full output" not in result["truncation_note"]
@@ -86,7 +84,7 @@ def publish(directory, name, data=b"synthetic capture"):
     from tools.environments.docker_output import _PUBLISH_SCRIPT
     return subprocess.run(
         [sys.executable, "-I", "-c", _PUBLISH_SCRIPT, str(directory), name],
-        input=data, capture_output=True, timeout=10,
+        input=data, capture_output=True, timeout=10, check=False,
     )
 
 

@@ -26,7 +26,8 @@ from tools.file_operations import (
     ShellFileOperations, normalize_read_pagination, normalize_search_pagination)
 from tools.file_operations_common import DEFAULT_READ_LIMIT, count_conflict_blocks
 from tools import file_state
-from agent.redact import _is_secret_file_arg, redact_sensitive_text
+from agent.redact import _is_secret_file_arg
+from agent.output_policy import protect_file_output
 from tools.file_tools_paths import (
     _expand_tilde, _path_resolution_warning, _resolve_base_dir, _resolve_entry_for_task,
     _resolve_path_for_task)
@@ -306,7 +307,6 @@ def _create_terminal_env_for_file_ops(raw_task_id: str, task_id: str):
         config, env_type, image=_select_image(env_type, overrides, config), cwd=cwd,
         timeout=config["timeout"], task_id=task_id,
         host_cwd=host_cwd,
-        local_config={"persistent": config.get("local_persistent", False)} if env_type == "local" else None,
     )
     return env_type, terminal_env
 
@@ -376,7 +376,7 @@ def _get_file_ops(task_id: str = "default") -> ShellFileOperations:
     return file_ops
 
 
-def clear_file_ops_cache(task_id: str = None):
+def clear_file_ops_cache(task_id: str | None = None):
     """Clear file-operation state for a finished task, or all tasks."""
     with _file_ops_lock:
         if task_id:
@@ -483,8 +483,8 @@ def _read_extracted_document(path: str, _resolved, offset: int, limit: int, task
         _apply_char_budget(result_dict, result_dict["content"], offset, total_lines, max_chars)
     if result_dict["content"]:
         rendered = result_dict["content"]
-        result_dict["content"] = redact_sensitive_text(
-            rendered, file_read=True,
+        result_dict["content"] = protect_file_output(
+            rendered,
             secret_file=_is_secret_file_arg(str(_resolved)))
         redacted = result_dict["content"] != rendered
     else:
@@ -706,8 +706,8 @@ def read_file_tool(path: str, offset: int = 1, limit: int = DEFAULT_READ_LIMIT, 
         redacted = False
         if result.content:
             unredacted = result.content
-            result.content = redact_sensitive_text(
-                unredacted, file_read=True, secret_file=_is_secret_file_arg(resolved_str))
+            result.content = protect_file_output(
+                unredacted, secret_file=_is_secret_file_arg(resolved_str))
             redacted = result.content != unredacted
             result_dict["content"] = result.content
 
@@ -956,8 +956,8 @@ def _collect_v4a_header_paths(patch: str) -> tuple[list[str], list[str], list[st
     return paths, content_paths, entry_paths
 
 
-def patch_tool(mode: str = "replace", path: str = None, old_string: str = None,
-               new_string: str = None, replace_all: bool = False, patch: str = None,
+def patch_tool(mode: str = "replace", path: str | None = None, old_string: str | None = None,
+               new_string: str | None = None, replace_all: bool = False, patch: str | None = None,
                task_id: str = "default", cross_profile: bool = False,
                session_id: str | None = None) -> str:
     """Patch a file using replace mode or V4A patch format.
@@ -1051,7 +1051,7 @@ def patch_tool(mode: str = "replace", path: str = None, old_string: str = None,
 
 
 def search_tool(pattern: str, target: str = "content", path: str = ".",
-                file_glob: str = None, limit: int = 50, offset: int = 0,
+                file_glob: str | None = None, limit: int = 50, offset: int = 0,
                 output_mode: str = "content", context: int = 0,
                 order: str = "discovery",
                 task_id: str = "default") -> str:
@@ -1105,8 +1105,8 @@ def search_tool(pattern: str, target: str = "content", path: str = ".",
         omitted = _filter_read_blocked_search_results(result, task_id)
         for m in getattr(result, "matches", None) or ():
             if getattr(m, "content", None):
-                m.content = redact_sensitive_text(
-                    m.content, file_read=True,
+                m.content = protect_file_output(
+                    m.content,
                     secret_file=_is_secret_file_arg(_resolved_match_path(m.path, task_id)))
         result_dict = result.to_dict(densify=True)
 
@@ -1275,7 +1275,7 @@ def _is_openai_family_main() -> bool:
 
         provider = (_read_main_provider() or "").strip().lower()
         model = (_read_main_model() or "").strip().lower()
-    except Exception:  # noqa: BLE001
+    except Exception:
         return False
     if provider in {"openai", "openai-chat", "openai-codex", "azure-openai", "codex"}:
         return True
@@ -1388,7 +1388,7 @@ def _read_file_schema_overrides():
                     "PDF (text layer)", "PDF (scanned or text)"
                 )
             }
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
     return {}
 
@@ -1413,7 +1413,7 @@ def _patch_schema_overrides():
             "required": ["mode"],
         }
         return {"description": _PATCH_V4A_DESCRIPTION, "parameters": params}
-    except Exception:  # noqa: BLE001
+    except Exception:
         return {}
 
 

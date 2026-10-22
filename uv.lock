@@ -4,21 +4,30 @@ requires-python = ">=3.11, <3.14"
 resolution-markers = [
     "python_full_version >= '3.13' and sys_platform == 'emscripten' and extra != 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten' and extra != 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts'",
-    "python_full_version >= '3.13' and sys_platform != 'emscripten' and extra != 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten' and extra != 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts'",
+    "python_full_version >= '3.13' and sys_platform != 'android' and sys_platform != 'emscripten' and extra != 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts'",
+    "python_full_version >= '3.13' and sys_platform == 'android' and extra != 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts'",
+    "python_full_version == '3.12.*' and sys_platform != 'android' and sys_platform != 'emscripten' and extra != 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts'",
+    "python_full_version == '3.12.*' and sys_platform == 'android' and extra != 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts'",
     "python_full_version < '3.12' and sys_platform == 'win32' and extra != 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts'",
     "python_full_version < '3.12' and sys_platform == 'emscripten' and extra != 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts'",
-    "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts'",
+    "python_full_version < '3.12' and sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra != 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts'",
+    "python_full_version < '3.12' and sys_platform == 'android' and extra != 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts'",
     "python_full_version >= '3.13' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra != 'extra-12-hermes-agent-neutts'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra != 'extra-12-hermes-agent-neutts'",
-    "python_full_version >= '3.13' and sys_platform != 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra != 'extra-12-hermes-agent-neutts'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra != 'extra-12-hermes-agent-neutts'",
-    "python_full_version < '3.12' and extra == 'extra-12-hermes-agent-kittentts' and extra != 'extra-12-hermes-agent-neutts'",
+    "python_full_version >= '3.13' and sys_platform != 'android' and sys_platform != 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra != 'extra-12-hermes-agent-neutts'",
+    "python_full_version >= '3.13' and sys_platform == 'android' and extra == 'extra-12-hermes-agent-kittentts' and extra != 'extra-12-hermes-agent-neutts'",
+    "python_full_version == '3.12.*' and sys_platform != 'android' and sys_platform != 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra != 'extra-12-hermes-agent-neutts'",
+    "python_full_version == '3.12.*' and sys_platform == 'android' and extra == 'extra-12-hermes-agent-kittentts' and extra != 'extra-12-hermes-agent-neutts'",
+    "python_full_version < '3.12' and sys_platform != 'android' and extra == 'extra-12-hermes-agent-kittentts' and extra != 'extra-12-hermes-agent-neutts'",
+    "python_full_version < '3.12' and sys_platform == 'android' and extra == 'extra-12-hermes-agent-kittentts' and extra != 'extra-12-hermes-agent-neutts'",
     "python_full_version >= '3.13' and sys_platform == 'emscripten' and extra != 'extra-12-hermes-agent-kittentts' and extra != 'extra-12-hermes-agent-neutts'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten' and extra != 'extra-12-hermes-agent-kittentts' and extra != 'extra-12-hermes-agent-neutts'",
-    "python_full_version >= '3.13' and sys_platform != 'emscripten' and extra != 'extra-12-hermes-agent-kittentts' and extra != 'extra-12-hermes-agent-neutts'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten' and extra != 'extra-12-hermes-agent-kittentts' and extra != 'extra-12-hermes-agent-neutts'",
-    "python_full_version < '3.12' and extra != 'extra-12-hermes-agent-kittentts' and extra != 'extra-12-hermes-agent-neutts'",
+    "python_full_version >= '3.13' and sys_platform != 'android' and sys_platform != 'emscripten' and extra != 'extra-12-hermes-agent-kittentts' and extra != 'extra-12-hermes-agent-neutts'",
+    "python_full_version >= '3.13' and sys_platform == 'android' and extra != 'extra-12-hermes-agent-kittentts' and extra != 'extra-12-hermes-agent-neutts'",
+    "python_full_version == '3.12.*' and sys_platform != 'android' and sys_platform != 'emscripten' and extra != 'extra-12-hermes-agent-kittentts' and extra != 'extra-12-hermes-agent-neutts'",
+    "python_full_version == '3.12.*' and sys_platform == 'android' and extra != 'extra-12-hermes-agent-kittentts' and extra != 'extra-12-hermes-agent-neutts'",
+    "python_full_version < '3.12' and sys_platform != 'android' and extra != 'extra-12-hermes-agent-kittentts' and extra != 'extra-12-hermes-agent-neutts'",
+    "python_full_version < '3.12' and sys_platform == 'android' and extra != 'extra-12-hermes-agent-kittentts' and extra != 'extra-12-hermes-agent-neutts'",
 ]
 conflicts = [[
     { package = "hermes-agent", extra = "kittentts" },
@@ -27,108 +36,7 @@ conflicts = [[
 
 [options]
 exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
-exclude-newer-span = "P14D"
-
-[options.exclude-newer-package]
-elevenlabs = false
-langfuse = "2026-09-09T16:01:26Z"
-setuptools = false
-modal = false
-pyyaml = false
-maturin = false
-numpy = false
-pvporcupine = false
-google-auth = false
-aiohttp = false
-starlette = false
-mistralai = false
-firecrawl-py = false
-parallel-web = false
-markdown = false
-opentelemetry-sdk = false
-prompt-toolkit = false
-fastapi = false
-anthropic = false
-pathspec = false
-ruff = false
-defusedxml = false
-websockets = false
-exa-py = false
-mcp = false
-python-olm = false
-wheel = false
-pytest = false
-pillow = false
-setuptools-rust = false
-tenacity = false
-sherpa-onnx-core = "2026-09-10T15:58:47Z"
-pyjwt = false
-slack-bolt = false
-fal-client = false
-asyncpg = false
-boto3 = false
-ruamel-yaml = false
-sherpa-onnx = "2026-09-10T17:00:04Z"
-huggingface-hub = false
-pytest-asyncio = false
-google-cloud-pubsub = false
-slack-sdk = false
-discord-py = false
-rich = false
-faster-whisper = false
-certifi = false
-debugpy = false
-ddgs = "2026-08-26T21:52:34Z"
-packaging = false
-unpaddedbase64 = false
-youtube-transcript-api = false
-h2 = false
-edge-tts = false
-microsoft-teams-apps = false
-aiohttp-socks = false
-sentencepiece = false
-opentelemetry-exporter-otlp-proto-http = false
-croniter = false
-browser-harness = false
-azure-identity = false
-lark-oapi = false
-firecrawl-anydoc = false
-google-api-python-client = false
-brotlicffi = false
-qrcode = false
-soundfile = "2026-06-06T08:58:48Z"
-vercel = false
-aiosqlite = false
-tzdata = false
-python-dotenv = false
-daytona = false
-uvicorn = false
-nemo-relay = false
-requests = false
-httplib2 = false
-httpx = false
-piper-tts = "2026-09-04T16:47:32Z"
-pyasn1 = false
-snowballstemmer = false
-concurrent-log-handler = false
-cryptography = false
-pydantic = false
-agent-client-protocol = false
-fire = false
-httpx2 = false
-google-auth-oauthlib = false
-python-multipart = false
-ty = false
-openai = false
-google-auth-httplib2 = false
-neutts = "2026-07-22T14:54:23Z"
-mautrix = false
-psutil = false
-python-telegram-bot = false
-jinja2 = false
-sounddevice = false
-alibabacloud-dingtalk = false
-dingtalk-stream = false
+exclude-newer-span = "P3D"
 
 [manifest]
 overrides = [
@@ -270,8 +178,8 @@ name = "aiohttp-socks"
 version = "0.11.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "aiohttp", marker = "(python_full_version >= '3.12' and sys_platform == 'win32') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'win32' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
-    { name = "python-socks", marker = "(python_full_version >= '3.12' and sys_platform == 'win32') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'win32' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
+    { name = "aiohttp", marker = "(python_full_version >= '3.12' and sys_platform == 'win32') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'win32' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform == 'android' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
+    { name = "python-socks", marker = "(python_full_version >= '3.12' and sys_platform == 'win32') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'win32' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform == 'android' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/1f/cc/e5bbd54f76bd56291522251e47267b645dac76327b2657ade9545e30522c/aiohttp_socks-0.11.0.tar.gz", hash = "sha256:0afe51638527c79077e4bd6e57052c87c4824233d6e20bb061c53766421b10f0", size = 11196, upload-time = "2025-12-09T13:35:52.564Z" }
 wheels = [
@@ -635,15 +543,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/7d/b2/51899539b6ceeeb420d40ed3cd4b7a40519404f9baf3d4ac99dc413a834b/babel-2.18.0.tar.gz", hash = "sha256:b80b99a14bd085fcacfa15c9165f651fbb3406e66cc603abf11c5750937c992d", size = 9959554, upload-time = "2026-02-01T12:30:56.078Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/77/f5/21d2de20e8b8b0408f0681956ca2c69f1320a3848ac50e6e7f39c6159675/babel-2.18.0-py3-none-any.whl", hash = "sha256:e2b422b277c2b9a9630c1d7903c2a00d0830c409c59ac8cae9081c92f1aeba35", size = 10196845, upload-time = "2026-02-01T12:30:53.445Z" },
-]
-
-[[package]]
-name = "backoff"
-version = "2.2.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/47/d7/5bbeb12c44d7c4f2fb5b56abce497eb5ed9f34d85701de869acedd602619/backoff-2.2.1.tar.gz", hash = "sha256:03f829f5bb1923180821643f8753b0502c3b682293992485b0eef2807afa5cba", size = 17001, upload-time = "2022-10-05T19:19:32.061Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/df/73/b6e24bd22e6720ca8ee9a85a0c4a2971af8497d8f3193fa05390cbd46e09/backoff-2.2.1-py3-none-any.whl", hash = "sha256:63579f9a0628e06278f7e47b7d7d5b6ce20dc65c5e96a6f3ca99a6adca0396e8", size = 15148, upload-time = "2022-10-05T19:19:30.546Z" },
 ]
 
 [[package]]
@@ -1113,7 +1012,7 @@ name = "cuda-bindings"
 version = "13.4.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cuda-pathfinder", marker = "(python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version >= '3.12' and sys_platform == 'win32' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
+    { name = "cuda-pathfinder", marker = "(python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version >= '3.12' and sys_platform == 'win32' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'android' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/dc/45/57fb37fea9200d854960e36c2181675f92d16bfd7012cc5a95b153e782f0/cuda_bindings-13.4.1-cp311-cp311-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:56c1552e207b291c321cef9952fbfaf8591c2a14d9c6e5215071020f541a04e5", size = 6484208, upload-time = "2026-09-10T01:16:46.069Z" },
@@ -1192,7 +1091,7 @@ name = "curated-tokenizers"
 version = "0.0.10"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "regex", marker = "python_full_version < '3.12' or sys_platform != 'emscripten'" },
+    { name = "regex", marker = "(python_full_version < '3.12' and sys_platform == 'emscripten') or (sys_platform != 'android' and sys_platform != 'emscripten')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/6d/3c/5d98e3fdbae12a0079d5ac06849bce200dd0cbf88b404d4d0fef4f7e3860/curated_tokenizers-0.0.10.tar.gz", hash = "sha256:1c2b506e9c49e999b41939d783e788e021de5586a66a594b222fc2592aa169cf", size = 2237645, upload-time = "2026-08-24T10:05:27.974Z" }
 wheels = [
@@ -1230,7 +1129,7 @@ name = "curated-transformers"
 version = "0.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "torch", marker = "python_full_version < '3.12' or sys_platform != 'emscripten'" },
+    { name = "torch", marker = "(python_full_version < '3.12' and sys_platform == 'emscripten') or (sys_platform != 'android' and sys_platform != 'emscripten')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/70/06/6c12c149a7f737dacc76b4c3949dbc7ff87d622567b86996896ae4d104aa/curated-transformers-0.1.1.tar.gz", hash = "sha256:4671f03314df30efda2ec2b59bc7692ea34fcea44cb65382342c16684e8a2119", size = 16313, upload-time = "2023-05-24T07:29:22.801Z" }
 wheels = [
@@ -2253,6 +2152,7 @@ dependencies = [
     { name = "pillow-heif" },
     { name = "prompt-toolkit" },
     { name = "psutil" },
+    { name = "ptyprocess", marker = "sys_platform != 'win32' or (extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
     { name = "pydantic" },
     { name = "pyjwt", extra = ["crypto"] },
     { name = "python-dotenv" },
@@ -2364,9 +2264,6 @@ kittentts = [
     { name = "kittentts", marker = "(platform_machine != 'x86_64' and sys_platform == 'darwin') or (platform_machine != 'ARM64' and sys_platform == 'win32') or (sys_platform != 'darwin' and sys_platform != 'win32')" },
     { name = "misaki", extra = ["en"], marker = "(platform_machine != 'x86_64' and sys_platform == 'darwin' and extra == 'extra-12-hermes-agent-kittentts') or (platform_machine != 'ARM64' and sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform != 'darwin' and sys_platform != 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'darwin' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
     { name = "soundfile", version = "0.14.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'x86_64' and sys_platform == 'darwin') or (platform_machine != 'ARM64' and sys_platform == 'win32') or (sys_platform != 'darwin' and sys_platform != 'win32')" },
-]
-langfuse = [
-    { name = "langfuse" },
 ]
 matrix = [
     { name = "aiohttp", marker = "sys_platform == 'linux' or (extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
@@ -2596,7 +2493,6 @@ requires-dist = [
     { name = "huggingface-hub", marker = "extra == 'trace-upload'", specifier = "==1.24.0" },
     { name = "jinja2", specifier = "==3.1.6" },
     { name = "kittentts", marker = "(platform_machine != 'x86_64' and sys_platform == 'darwin' and extra == 'kittentts') or (platform_machine != 'ARM64' and sys_platform == 'win32' and extra == 'kittentts') or (sys_platform != 'darwin' and sys_platform != 'win32' and extra == 'kittentts')", url = "https://github.com/KittenML/KittenTTS/releases/download/0.8.1/kittentts-0.8.1-py3-none-any.whl" },
-    { name = "langfuse", marker = "extra == 'langfuse'", specifier = "==4.15.2" },
     { name = "lark-oapi", marker = "extra == 'feishu'", specifier = "==1.6.8" },
     { name = "markdown", specifier = "==3.10.2" },
     { name = "mautrix", extras = ["encryption"], marker = "sys_platform == 'linux' and extra == 'matrix'", specifier = "==0.21.1" },
@@ -2606,7 +2502,7 @@ requires-dist = [
     { name = "misaki", extras = ["en"], marker = "(platform_machine != 'x86_64' and sys_platform == 'darwin' and extra == 'kittentts') or (platform_machine != 'ARM64' and sys_platform == 'win32' and extra == 'kittentts') or (sys_platform != 'darwin' and sys_platform != 'win32' and extra == 'kittentts')", git = "https://github.com/NousResearch/misaki.git?rev=f03fd2be7346952a83d3d4845c217fc7667f322d" },
     { name = "mistralai", marker = "extra == 'mistral'", specifier = "==2.4.8" },
     { name = "modal", marker = "extra == 'modal'", specifier = "==1.5.5" },
-    { name = "nemo-relay", marker = "(python_full_version >= '3.14' and platform_machine == 'aarch64' and 'android' not in platform_release and sys_platform == 'linux') or (python_full_version >= '3.14' and platform_machine == 'x86_64' and 'android' not in platform_release and sys_platform == 'linux') or (python_full_version >= '3.14' and platform_machine == 'arm64' and sys_platform == 'darwin') or (python_full_version >= '3.14' and platform_machine == 'AMD64' and sys_platform == 'win32') or (python_full_version >= '3.14' and platform_machine == 'ARM64' and sys_platform == 'win32')", specifier = ">=0.9,<0.10" },
+    { name = "nemo-relay", marker = "(python_full_version >= '3.14' and platform_machine == 'aarch64' and 'android' not in platform_release and sys_platform == 'linux') or (python_full_version >= '3.14' and platform_machine == 'x86_64' and 'android' not in platform_release and sys_platform == 'linux') or (python_full_version >= '3.14' and platform_machine == 'arm64' and sys_platform == 'darwin') or (python_full_version >= '3.14' and platform_machine == 'AMD64' and sys_platform == 'win32') or (python_full_version >= '3.14' and platform_machine == 'ARM64' and sys_platform == 'win32')", specifier = ">=0.10,<0.11" },
     { name = "neutts", extras = ["all"], marker = "python_full_version < '3.14' and extra == 'neutts'", specifier = "==1.4.1" },
     { name = "numpy", marker = "extra == 'audio-io'", specifier = "==2.4.3" },
     { name = "numpy", marker = "extra == 'voice'", specifier = "==2.4.3" },
@@ -2624,9 +2520,9 @@ requires-dist = [
     { name = "playwright", marker = "extra == 'google-meet'", specifier = "==1.62.0" },
     { name = "prompt-toolkit", specifier = "==3.0.52" },
     { name = "psutil", marker = "python_full_version < '3.14'", specifier = "==7.2.2" },
+    { name = "psutil", marker = "sys_platform != 'android'", specifier = "==7.2.2" },
     { name = "psutil", marker = "python_full_version >= '3.14' and sys_platform == 'android'", git = "https://github.com/giampaolo/psutil.git?rev=380bd2b59c67b0e1b04bbf3a90b11744f4f96644" },
-    { name = "psutil", marker = "python_full_version >= '3.14' and sys_platform != 'android'", specifier = "==7.2.2" },
-    { name = "ptyprocess", marker = "python_full_version >= '3.14' and sys_platform != 'win32'", specifier = ">=0.7.0,<1" },
+    { name = "ptyprocess", marker = "sys_platform != 'win32'", specifier = "==0.7.0" },
     { name = "pvporcupine", marker = "extra == 'wake'", specifier = "==4.0.3" },
     { name = "pvporcupine", marker = "extra == 'wake-porcupine'", specifier = "==4.0.3" },
     { name = "pyasn1", marker = "extra == 'google'", specifier = "==0.6.4" },
@@ -2688,7 +2584,7 @@ requires-dist = [
     { name = "winrt-windows-services-store", marker = "python_full_version >= '3.14' and sys_platform == 'win32'", specifier = ">=3.2.1,<4" },
     { name = "youtube-transcript-api", marker = "extra == 'youtube'", specifier = "==1.2.4" },
 ]
-provides-extras = ["uvloop", "anthropic", "exa", "firecrawl", "parallel-web", "ddgs", "fal", "edge-tts", "neutts", "kittentts", "piper", "modal", "daytona", "vercel", "google-meet", "messaging", "cron", "slack", "matrix", "wecom", "tts-premium", "voice", "wake", "telegram", "discord", "stt-whisper", "audio-io", "silk", "wake-openwakeword", "wake-sherpa", "wake-porcupine", "google-chat", "doc-extract", "trace-upload", "vision", "pty", "mcp", "nemo-relay", "sms", "teams", "computer-use", "acp", "mistral", "otlp", "langfuse", "bedrock", "vertex", "azure-identity", "termux", "termux-all", "dingtalk", "feishu", "google", "youtube", "web", "all"]
+provides-extras = ["uvloop", "anthropic", "exa", "firecrawl", "parallel-web", "ddgs", "fal", "edge-tts", "neutts", "kittentts", "piper", "modal", "daytona", "vercel", "google-meet", "messaging", "cron", "slack", "matrix", "wecom", "tts-premium", "voice", "wake", "telegram", "discord", "stt-whisper", "audio-io", "silk", "wake-openwakeword", "wake-sherpa", "wake-porcupine", "google-chat", "doc-extract", "trace-upload", "vision", "pty", "mcp", "nemo-relay", "sms", "teams", "computer-use", "acp", "mistral", "otlp", "bedrock", "vertex", "azure-identity", "termux", "termux-all", "dingtalk", "feishu", "google", "youtube", "web", "all"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -3123,26 +3019,6 @@ requires-dist = [
 ]
 
 [[package]]
-name = "langfuse"
-version = "4.15.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "backoff" },
-    { name = "httpx" },
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-exporter-otlp-proto-http" },
-    { name = "opentelemetry-sdk" },
-    { name = "packaging" },
-    { name = "pydantic" },
-    { name = "typing-extensions" },
-    { name = "wrapt" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/97/30/6a64dcf84de2f2eb4d03adbfd22cc7bdc95ce67e3e56cd6288405087fb8a/langfuse-4.15.2.tar.gz", hash = "sha256:7f818f38cc22daba88fdcec62d2addcee4e18d1af4529978b6d07501e86b6946", size = 391727, upload-time = "2026-09-09T16:01:25.73Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/02/de/e59da18cb5ca9cb8515a254199bd96ace8cf918788d13ded66aa2693e007/langfuse-4.15.2-py3-none-any.whl", hash = "sha256:98c27a3c06e18c4497045f2d4decce2c716ef11cb215cf5b27bbea6ee0877115", size = 705824, upload-time = "2026-09-09T16:01:23.696Z" },
-]
-
-[[package]]
 name = "language-tags"
 version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
@@ -3404,9 +3280,9 @@ name = "mautrix"
 version = "0.21.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "aiohttp", marker = "(python_full_version >= '3.12' and sys_platform == 'win32') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'win32' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
-    { name = "attrs", marker = "(python_full_version >= '3.12' and sys_platform == 'win32') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'win32' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
-    { name = "yarl", marker = "(python_full_version >= '3.12' and sys_platform == 'win32') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'win32' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
+    { name = "aiohttp", marker = "(python_full_version >= '3.12' and sys_platform == 'win32') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'win32' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform == 'android' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
+    { name = "attrs", marker = "(python_full_version >= '3.12' and sys_platform == 'win32') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'win32' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform == 'android' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
+    { name = "yarl", marker = "(python_full_version >= '3.12' and sys_platform == 'win32') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'win32' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform == 'android' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/8e/51/08e0a30262928b58a3ff4cb8b8cabd43c6b5738dead3468840ec4bdbc20b/mautrix-0.21.1.tar.gz", hash = "sha256:2cad21fcff32bd549192091f9b7b58c01980a7b46f827eef8f34e62d92762b67", size = 254995, upload-time = "2026-07-05T20:33:12.16Z" }
 wheels = [
@@ -3415,10 +3291,10 @@ wheels = [
 
 [package.optional-dependencies]
 encryption = [
-    { name = "base58", marker = "(python_full_version >= '3.12' and sys_platform == 'win32') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'win32' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
-    { name = "pycryptodome", marker = "(python_full_version >= '3.12' and sys_platform == 'win32') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'win32' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
-    { name = "python-olm", marker = "(python_full_version >= '3.12' and sys_platform == 'win32') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'win32' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
-    { name = "unpaddedbase64", marker = "(python_full_version >= '3.12' and sys_platform == 'win32') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'win32' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
+    { name = "base58", marker = "(python_full_version >= '3.12' and sys_platform == 'win32') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'win32' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform == 'android' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
+    { name = "pycryptodome", marker = "(python_full_version >= '3.12' and sys_platform == 'win32') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'win32' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform == 'android' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
+    { name = "python-olm", marker = "(python_full_version >= '3.12' and sys_platform == 'win32') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'win32' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform == 'android' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
+    { name = "unpaddedbase64", marker = "(python_full_version >= '3.12' and sys_platform == 'win32') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'win32' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform == 'android' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
 ]
 
 [[package]]
@@ -3987,7 +3863,7 @@ name = "nvidia-cublas"
 version = "13.1.1.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cuda-nvrtc", marker = "(python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version >= '3.12' and sys_platform == 'win32' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
+    { name = "nvidia-cuda-nvrtc", marker = "(python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version >= '3.12' and sys_platform == 'win32' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'android' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a7/a1/0bd24ee8c8d03adac032fd2909426a00c88f8c57961b1277ded97f91119f/nvidia_cublas-13.1.1.3-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:b7a210458267ac818974c53038fbec2e969d5c99f305ab15c72522fa9f001dd5", size = 542848918, upload-time = "2026-04-08T18:46:22.985Z" },
@@ -4030,7 +3906,7 @@ name = "nvidia-cudnn-cu13"
 version = "9.24.0.43"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas", marker = "(python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version >= '3.12' and sys_platform == 'win32' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
+    { name = "nvidia-cublas", marker = "(python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version >= '3.12' and sys_platform == 'win32' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'android' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ca/30/7c257e3d5cb4fecb147b93895c66e29c93f8e76d74b45bb418ff0587c4ec/nvidia_cudnn_cu13-9.24.0.43-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:a6812a554a1ff0413e9c52b84c26c050380649ab9615f9c16bded368ce9f421f", size = 650976863, upload-time = "2026-07-02T16:23:39.248Z" },
@@ -4043,7 +3919,7 @@ name = "nvidia-cufft"
 version = "12.0.0.61"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink", marker = "(python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version >= '3.12' and sys_platform == 'win32' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
+    { name = "nvidia-nvjitlink", marker = "(python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version >= '3.12' and sys_platform == 'win32' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'android' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/8b/ae/f417a75c0259e85c1d2f83ca4e960289a5f814ed0cea74d18c353d3e989d/nvidia_cufft-12.0.0.61-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:2708c852ef8cd89d1d2068bdbece0aa188813a0c934db3779b9b1faa8442e5f5", size = 214053554, upload-time = "2025-09-04T08:31:38.196Z" },
@@ -4075,9 +3951,9 @@ name = "nvidia-cusolver"
 version = "12.0.4.66"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas", marker = "(python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version >= '3.12' and sys_platform == 'win32' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
-    { name = "nvidia-cusparse", marker = "(python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version >= '3.12' and sys_platform == 'win32' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
-    { name = "nvidia-nvjitlink", marker = "(python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version >= '3.12' and sys_platform == 'win32' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
+    { name = "nvidia-cublas", marker = "(python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version >= '3.12' and sys_platform == 'win32' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'android' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
+    { name = "nvidia-cusparse", marker = "(python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version >= '3.12' and sys_platform == 'win32' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'android' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
+    { name = "nvidia-nvjitlink", marker = "(python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version >= '3.12' and sys_platform == 'win32' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'android' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c8/c3/b30c9e935fc01e3da443ec0116ed1b2a009bb867f5324d3f2d7e533e776b/nvidia_cusolver-12.0.4.66-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:02c2457eaa9e39de20f880f4bd8820e6a1cfb9f9a34f820eb12a155aa5bc92d2", size = 223467760, upload-time = "2025-09-04T08:33:04.222Z" },
@@ -4090,7 +3966,7 @@ name = "nvidia-cusparse"
 version = "12.6.3.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink", marker = "(python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version >= '3.12' and sys_platform == 'win32' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
+    { name = "nvidia-nvjitlink", marker = "(python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version >= '3.12' and sys_platform == 'win32' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'android' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f8/94/5c26f33738ae35276672f12615a64bd008ed5be6d1ebcb23579285d960a9/nvidia_cusparse-12.6.3.3-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:80bcc4662f23f1054ee334a15c72b8940402975e0eab63178fc7e670aa59472c", size = 162155568, upload-time = "2025-09-04T08:33:42.864Z" },
@@ -4873,6 +4749,15 @@ wheels = [
 ]
 
 [[package]]
+name = "ptyprocess"
+version = "0.7.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/20/e5/16ff212c1e452235a90aeb09066144d0c5a6a8c0834397e03f5224495c4e/ptyprocess-0.7.0.tar.gz", hash = "sha256:5c5d0a3b48ceee0b48485e0c26037c0acd7d29765ca3fbb5cb3831d347423220", size = 70762, upload-time = "2020-12-28T15:15:30.155Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/22/a6/858897256d0deac81a172289110f31629fc4cee19b6f01283303e18c8db3/ptyprocess-0.7.0-py2.py3-none-any.whl", hash = "sha256:4b41f3967fce3af57cc7e94b888626c18bf37a083e3651ca8feeb66d492fef35", size = 13993, upload-time = "2020-12-28T15:15:28.35Z" },
+]
+
+[[package]]
 name = "pvporcupine"
 version = "4.0.3"
 source = { registry = "https://pypi.org/simple" }
@@ -5268,7 +5153,7 @@ name = "python-olm"
 version = "3.2.16"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cffi", marker = "(python_full_version >= '3.12' and sys_platform == 'win32') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'win32' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
+    { name = "cffi", marker = "(python_full_version >= '3.12' and sys_platform == 'win32') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts') or (python_full_version < '3.12' and sys_platform == 'emscripten' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32') or (sys_platform == 'win32' and extra == 'extra-12-hermes-agent-kittentts') or (sys_platform == 'win32' and extra != 'extra-12-hermes-agent-neutts') or (sys_platform == 'android' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts') or (sys_platform == 'emscripten' and extra == 'extra-12-hermes-agent-kittentts' and extra == 'extra-12-hermes-agent-neutts')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/b8/eb/23ca73cbdc8c7466a774e515dfd917d9fbe747c1257059246fdc63093f04/python-olm-3.2.16.tar.gz", hash = "sha256:a1c47fce2505b7a16841e17694cbed4ed484519646ede96ee9e89545a49643c9", size = 2705522, upload-time = "2023-11-28T19:26:40.578Z" }
 wheels = [
@@ -5802,7 +5687,8 @@ source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version < '3.12' and sys_platform == 'win32'",
     "python_full_version < '3.12' and sys_platform == 'emscripten'",
-    "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version < '3.12' and sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version < '3.12' and sys_platform == 'android'",
 ]
 dependencies = [
     { name = "numpy", marker = "python_full_version < '3.12'" },
@@ -5858,8 +5744,10 @@ source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.13' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.13' and sys_platform != 'emscripten'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten'",
+    "python_full_version >= '3.13' and sys_platform != 'android' and sys_platform != 'emscripten'",
+    "python_full_version >= '3.13' and sys_platform == 'android'",
+    "python_full_version == '3.12.*' and sys_platform != 'android' and sys_platform != 'emscripten'",
+    "python_full_version == '3.12.*' and sys_platform == 'android'",
 ]
 dependencies = [
     { name = "numpy", marker = "python_full_version >= '3.12'" },
@@ -6102,11 +5990,14 @@ source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.13' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.13' and sys_platform != 'emscripten'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten'",
+    "python_full_version >= '3.13' and sys_platform != 'android' and sys_platform != 'emscripten'",
+    "python_full_version >= '3.13' and sys_platform == 'android'",
+    "python_full_version == '3.12.*' and sys_platform != 'android' and sys_platform != 'emscripten'",
+    "python_full_version == '3.12.*' and sys_platform == 'android'",
     "python_full_version < '3.12' and sys_platform == 'win32'",
     "python_full_version < '3.12' and sys_platform == 'emscripten'",
-    "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version < '3.12' and sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version < '3.12' and sys_platform == 'android'",
 ]
 dependencies = [
     { name = "cffi" },
@@ -6130,9 +6021,12 @@ source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.13' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.13' and sys_platform != 'emscripten'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten'",
-    "python_full_version < '3.12'",
+    "python_full_version >= '3.13' and sys_platform != 'android' and sys_platform != 'emscripten'",
+    "python_full_version >= '3.13' and sys_platform == 'android'",
+    "python_full_version == '3.12.*' and sys_platform != 'android' and sys_platform != 'emscripten'",
+    "python_full_version == '3.12.*' and sys_platform == 'android'",
+    "python_full_version < '3.12' and sys_platform != 'android'",
+    "python_full_version < '3.12' and sys_platform == 'android'",
 ]
 dependencies = [
     { name = "cffi" },
@@ -6231,9 +6125,9 @@ name = "spacy-curated-transformers"
 version = "0.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "curated-tokenizers", marker = "python_full_version < '3.12' or sys_platform != 'emscripten'" },
-    { name = "curated-transformers", marker = "python_full_version < '3.12' or sys_platform != 'emscripten'" },
-    { name = "torch", marker = "python_full_version < '3.12' or sys_platform != 'emscripten'" },
+    { name = "curated-tokenizers", marker = "(python_full_version < '3.12' and sys_platform == 'emscripten') or (sys_platform != 'android' and sys_platform != 'emscripten')" },
+    { name = "curated-transformers", marker = "(python_full_version < '3.12' and sys_platform == 'emscripten') or (sys_platform != 'android' and sys_platform != 'emscripten')" },
+    { name = "torch", marker = "(python_full_version < '3.12' and sys_platform == 'emscripten') or (sys_platform != 'android' and sys_platform != 'emscripten')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/d8/b3/a4fd3cf28008cbe1d95463b5c76a0d9c8da7b9ad4f06289c2be4aae62052/spacy_curated_transformers-0.3.1.tar.gz", hash = "sha256:7e53fccf64260e641b0a3f2b65b6d98381b86cef6eeb21ce279e8db849e8525d", size = 218990, upload-time = "2025-05-28T10:29:32.69Z" }
 wheels = [
@@ -6499,11 +6393,14 @@ source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.13' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.13' and sys_platform != 'emscripten'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten'",
+    "python_full_version >= '3.13' and sys_platform != 'android' and sys_platform != 'emscripten'",
+    "python_full_version >= '3.13' and sys_platform == 'android'",
+    "python_full_version == '3.12.*' and sys_platform != 'android' and sys_platform != 'emscripten'",
+    "python_full_version == '3.12.*' and sys_platform == 'android'",
     "python_full_version < '3.12' and sys_platform == 'win32'",
     "python_full_version < '3.12' and sys_platform == 'emscripten'",
-    "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version < '3.12' and sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version < '3.12' and sys_platform == 'android'",
 ]
 dependencies = [
     { name = "huggingface-hub", marker = "extra == 'extra-12-hermes-agent-neutts'" },
@@ -6534,9 +6431,12 @@ source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.13' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.13' and sys_platform != 'emscripten'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten'",
-    "python_full_version < '3.12'",
+    "python_full_version >= '3.13' and sys_platform != 'android' and sys_platform != 'emscripten'",
+    "python_full_version >= '3.13' and sys_platform == 'android'",
+    "python_full_version == '3.12.*' and sys_platform != 'android' and sys_platform != 'emscripten'",
+    "python_full_version == '3.12.*' and sys_platform == 'android'",
+    "python_full_version < '3.12' and sys_platform != 'android'",
+    "python_full_version < '3.12' and sys_platform == 'android'",
 ]
 dependencies = [
     { name = "huggingface-hub", marker = "extra == 'extra-12-hermes-agent-kittentts' or extra != 'extra-12-hermes-agent-neutts'" },
@@ -6732,11 +6632,14 @@ source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.13' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.13' and sys_platform != 'emscripten'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten'",
+    "python_full_version >= '3.13' and sys_platform != 'android' and sys_platform != 'emscripten'",
+    "python_full_version >= '3.13' and sys_platform == 'android'",
+    "python_full_version == '3.12.*' and sys_platform != 'android' and sys_platform != 'emscripten'",
+    "python_full_version == '3.12.*' and sys_platform == 'android'",
     "python_full_version < '3.12' and sys_platform == 'win32'",
     "python_full_version < '3.12' and sys_platform == 'emscripten'",
-    "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version < '3.12' and sys_platform != 'android' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version < '3.12' and sys_platform == 'android'",
 ]
 dependencies = [
     { name = "huggingface-hub" },
@@ -6761,9 +6664,12 @@ source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.13' and sys_platform == 'emscripten'",
     "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.13' and sys_platform != 'emscripten'",
-    "python_full_version == '3.12.*' and sys_platform != 'emscripten'",
-    "python_full_version < '3.12'",
+    "python_full_version >= '3.13' and sys_platform != 'android' and sys_platform != 'emscripten'",
+    "python_full_version >= '3.13' and sys_platform == 'android'",
+    "python_full_version == '3.12.*' and sys_platform != 'android' and sys_platform != 'emscripten'",
+    "python_full_version == '3.12.*' and sys_platform == 'android'",
+    "python_full_version < '3.12' and sys_platform != 'android'",
+    "python_full_version < '3.12' and sys_platform == 'android'",
 ]
 dependencies = [
     { name = "huggingface-hub" },

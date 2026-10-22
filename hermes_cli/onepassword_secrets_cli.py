@@ -36,6 +36,8 @@ from hermes_cli.config import get_env_path, load_config, save_config, save_env_v
 
 _DEFAULT_TOKEN_ENV = "OP_SERVICE_ACCOUNT_TOKEN"
 _DOCS_URL = "https://developer.1password.com/docs/cli/get-started/"
+_FILE_AUTH_HINT = ("A bootstrap file is selected. Manage that file externally, or clear "
+                   "secrets.onepassword.service_account_token_file before choosing env authentication.")
 
 # Old name kept bound: tests call ``onepassword_secrets_cli._op_version`` directly.
 _op_version = cli_version
@@ -97,6 +99,10 @@ def cmd_setup(args: argparse.Namespace) -> int:
 
     cfg = load_config()
     op_cfg = _op_cfg_for_write(cfg)
+    token_file = cfg_str(op_cfg, "service_account_token_file")
+    if token_file and (args.token or args.token_env):
+        console.print(f"[red]{_FILE_AUTH_HINT}[/red]")
+        return 1
 
     console.print()
     console.print("[bold]Step 1[/bold]  Locate the op CLI")
@@ -124,7 +130,10 @@ def cmd_setup(args: argparse.Namespace) -> int:
     op_cfg["service_account_token_env"] = token_env
 
     token = (args.token or "").strip()
-    if token:
+    if token_file:
+        console.print(f"  Using selected bootstrap file: {token_file}")
+        console.print("  No alternate identity is probed; use sync to validate resolution.")
+    elif token:
         save_env_value(token_env, token)
         os.environ[token_env] = token
         console.print(f"  [green]✓[/green] service-account token stored in {get_env_path()} as {token_env}")
@@ -169,6 +178,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     binary_path = cfg_str(op_cfg, "binary_path")
     references = _references(op_cfg)
     token_set = bool(os.environ.get(token_env))
+    token_file = cfg_str(op_cfg, "service_account_token_file")
 
     binary = op_src.find_op(binary_path)
 
@@ -176,7 +186,8 @@ def cmd_status(args: argparse.Namespace) -> int:
         ("Enabled", yn(enabled)),
         ("Account", account or "[dim]default[/dim]"),
         ("Token env var", token_env),
-        ("Token in env", yn(token_set)),
+        ("Token in env", "[dim]ignored (file selected)[/dim]" if token_file else yn(token_set)),
+        ("Token file", token_file or "[dim]not configured[/dim]"),
         ("Override existing", yn(bool(op_cfg.get("override_existing", True)))),
         ("Cache TTL (s)", str(op_cfg.get("cache_ttl_seconds", 300))),
         ("op binary", f"{binary} ({_op_version(binary)})" if binary else "[yellow]not found[/yellow]"),
@@ -190,7 +201,9 @@ def cmd_status(args: argparse.Namespace) -> int:
     if not enabled:
         console.print("\n  Run [cyan]hermes secrets onepassword setup[/cyan] to enable.")
         return 0
-    if binary and not token_set:
+    if token_file:
+        console.print("\n  Using selected bootstrap file; no alternate identity is probed.")
+    elif binary and not token_set:
         who = _op_whoami(binary, account)
         if who:
             console.print(f"\n  [green]Active op session:[/green] {who}")
@@ -250,6 +263,9 @@ def cmd_token(args: argparse.Namespace) -> int:
     only then persist to .env, so a bad paste never bricks the working token."""
     console = Console()
     op_cfg = _op_cfg()
+    if cfg_str(op_cfg, "service_account_token_file"):
+        console.print(f"[red]{_FILE_AUTH_HINT}[/red]")
+        return 1
     token_env = op_cfg.get("service_account_token_env", _DEFAULT_TOKEN_ENV)
     account = cfg_str(op_cfg, "account")
     binary_path = cfg_str(op_cfg, "binary_path")
@@ -304,6 +320,8 @@ def cmd_sync(args: argparse.Namespace) -> int:
     account = cfg_str(op_cfg, "account")
     token_env = op_cfg.get("service_account_token_env", _DEFAULT_TOKEN_ENV)
     binary_path = cfg_str(op_cfg, "binary_path")
+    token_file = cfg_str(op_cfg, "service_account_token_file")
+    from hermes_constants import get_hermes_home
 
     # --apply uses the startup code path so the skip/override/token-guard policy lives in one place.
     if args.apply:
@@ -312,6 +330,8 @@ def cmd_sync(args: argparse.Namespace) -> int:
             env=references,
             account=account,
             service_account_token_env=token_env,
+            service_account_token_file=token_file,
+            home_path=get_hermes_home(),
             binary_path=binary_path,
             override_existing=bool(op_cfg.get("override_existing", True)),
             cache_ttl_seconds=0,  # an explicit sync always resolves fresh
@@ -334,6 +354,8 @@ def cmd_sync(args: argparse.Namespace) -> int:
             references=references,
             account=account,
             token_env=token_env,
+            token_file=token_file,
+            home_path=get_hermes_home(),
             binary_path=binary_path,
             use_cache=False,
         )
@@ -386,7 +408,8 @@ def _op_whoami(binary: Path, account: str, *, token_value: str = "") -> Optional
     try:
         res = subprocess.run(
             cmd, env=env, capture_output=True, text=True,
-            encoding="utf-8", errors="replace", timeout=10
+            encoding="utf-8", errors="replace", timeout=10,
+            check=False,
         )
     except (OSError, subprocess.TimeoutExpired):
         return None

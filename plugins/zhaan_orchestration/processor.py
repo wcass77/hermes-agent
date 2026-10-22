@@ -4,10 +4,10 @@ import json
 import base64
 import hashlib
 import mimetypes
-import os
 import re
 import shutil
 import subprocess
+from agent.secret_scope import get_secret
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -37,7 +37,8 @@ class PreparedEmail:
 
 def child_environment() -> dict[str, str]:
     """Return an agent-child environment without gateway process identity."""
-    environment = os.environ.copy()
+    from tools.environments.local import served_profile_child_env
+    environment = served_profile_child_env(inherit_credentials=True)
     environment.pop("_HERMES_GATEWAY", None)
     return environment
 
@@ -58,7 +59,7 @@ class Processor:
         self.workspace = workspace
         self.hermes_command = (
             hermes_command
-            or os.environ.get("ZHAAN_HERMES_COMMAND")
+            or get_secret("ZHAAN_HERMES_COMMAND")
             or shutil.which("hermes")
             or str(Path.home() / ".local/bin/hermes")
         )
@@ -189,6 +190,7 @@ class Processor:
         result = subprocess.run(
             [self.hermes_command, "--profile", "zhaan", "chat", "--resume", session_id, "-q", prompt, "--quiet"],
             cwd=self.workspace, env=environment, text=True, capture_output=True, timeout=1800,
+            stdin=subprocess.DEVNULL, check=False,
         )
         if result.returncode != 0:
             raise RuntimeError(result.stderr[-2000:] or f"Hermes exited {result.returncode}")
@@ -207,7 +209,7 @@ class Processor:
         reply = f"{reply}\n\n{self._routing_footer(decision)}"
         outgoing = []
         if manifest.is_file():
-            prepared = json.loads(manifest.read_text(encoding="utf-8"))
+            prepared = json.loads(manifest.read_text(encoding="utf-8-sig"))
             path = Path(prepared["path"]).resolve(strict=True)
             archive = (self.workspace / "documents" / "archive").resolve()
             if archive not in path.parents or hashlib.sha256(path.read_bytes()).hexdigest() != prepared["sha256"]:

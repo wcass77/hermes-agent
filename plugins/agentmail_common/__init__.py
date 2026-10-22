@@ -108,13 +108,13 @@ def verify_svix(
     if not webhook_id or len(webhook_id) > 200 or not timestamp or not signatures:
         raise ValueError("missing or invalid Svix headers")
     try:
-        sent = dt.datetime.fromtimestamp(int(timestamp), dt.timezone.utc)
+        sent = dt.datetime.fromtimestamp(int(timestamp), dt.UTC)
     except (ValueError, OverflowError) as exc:
         raise ValueError("invalid Svix timestamp") from exc
     if isinstance(now, (int, float)):
-        current = dt.datetime.fromtimestamp(now, dt.timezone.utc)
+        current = dt.datetime.fromtimestamp(now, dt.UTC)
     else:
-        current = now or dt.datetime.now(dt.timezone.utc)
+        current = now or dt.datetime.now(dt.UTC)
     if abs((current - sent).total_seconds()) > tolerance:
         raise ValueError("stale Svix timestamp")
     signed = webhook_id.encode() + b"." + timestamp.encode() + b"." + body

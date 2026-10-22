@@ -284,13 +284,6 @@ class CLISessionMixin:
             ctx_label = None
 
         lines = [t("cli.session.status_title"), "", *status_lines(fields, "session_id", "path", "title", "model")]
-        try:
-            from hermes_cli.anon_auth import free_tier_route
-
-            if free_tier_route():
-                lines.append(t("gateway.status.free_tier"))
-        except Exception:
-            pass
         optional = ((t("cli.session.label_reasoning"), reasoning_label),
                     (t("cli.session.label_approvals"), approval_label),
                     (t("cli.session.label_context"), ctx_label))
@@ -430,7 +423,10 @@ class CLISessionMixin:
                 "platform": getattr(self, "platform", None) or "cli",
                 "reason": "new_session" if event_type == "on_session_reset" else "session_boundary"}
             if event_type == "on_session_finalize":
-                finalize_session(**context)
+                from cli import _cli_visible_print
+                from hermes_cli.lifecycle import session_end_messages
+                for message in session_end_messages(finalize_session(**context)):
+                    _cli_visible_print(message)
             else:
                 invoke_hook(event_type, **context)
 
@@ -623,8 +619,8 @@ class CLISessionMixin:
             SAVE_USAGE, load_save_snapshot, normalize_save_format, render_session_for_save)
 
         parts = cmd.split()[1:]
-        redact = bool(parts) and parts[-1].lower() in ("redact", "--redact")
-        if redact:
+        redact = not (parts and parts[-1].lower() == "--no-redact")
+        if parts and parts[-1].lower() in ("redact", "--redact", "--no-redact"):
             parts = parts[:-1]
         if not parts:
             print(SAVE_USAGE)
@@ -658,11 +654,6 @@ class CLISessionMixin:
             session_data = {
                 "id": self.session_id, "model": self.model,
                 "started_at": self.session_start.timestamp(), "messages": self.conversation_history}
-        if redact:
-            from hermes_cli.session_export_md import redact_session_data
-
-            session_data = redact_session_data(session_data)
-
         saved_dir = get_hermes_home() / "sessions" / "saved"
         try:
             saved_dir.mkdir(parents=True, exist_ok=True)
@@ -678,7 +669,7 @@ class CLISessionMixin:
             path = saved_dir / f"hermes_conversation_{timestamp}.{fmt}"
 
         try:
-            content = render_session_for_save(session_data, fmt)
+            content = render_session_for_save(session_data, fmt, redact=redact)
             with open(path, "w", encoding="utf-8") as f:
                 f.write(content)
             label = {"json": "JSON", "md": t("cli.session.format_markdown"), "html": "HTML"}[fmt]
@@ -1103,6 +1094,11 @@ class CLISessionMixin:
             # Honors NO_COLOR/dumb terminals by skipping silently when there's no real console.
             self._clear_terminal_on_exit()
         print()
+        import cli as _cli_module
+        # Plugin on_session_finalize messages from _run_cleanup: printed after the clear so they survive.
+        for message in _cli_module._session_end_messages:
+            print(message)
+        _cli_module._session_end_messages.clear()
         msg_count = len(self.conversation_history)
         if not msg_count:
             try:

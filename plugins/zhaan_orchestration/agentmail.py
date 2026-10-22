@@ -12,4 +12,4 @@ class Client(AgentMailClient):
 
     @property
     def api_key(self) -> str:
-        return self.api_key_file.read_text().strip()
+        return self.api_key_file.read_text(encoding="utf-8-sig").strip()

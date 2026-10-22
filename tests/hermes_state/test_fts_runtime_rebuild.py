@@ -183,59 +183,37 @@ class TestRuntimeFtsRebuild:
         assert hermes_state_holders._looks_like_hermes(argv)
 
     @pytest.mark.platforms("linux")
-    def test_foreign_holder_detection_proc_readlink_deleted_wal(
-        self, db, tmp_path, monkeypatch
-    ):
-        """Linux /proc/<pid>/fd readlinks preserve '(deleted)' suffix.
+    def test_foreign_holder_detection_proc_readlink_deleted_wal(self, tmp_path):
+        """A real Linux descriptor retains the deleted sidecar's identity and pathname."""
+        import select
+        import subprocess
+        import sys
 
-        psutil.open_files() drops these entries (isfile_strict stats the
-        literal path and fails).  The /proc path catches the split-brain
-        holder that psutil silently misses.
-        """
         db_path = tmp_path / "state.db"
-        db_path_wal = str(db_path) + "-wal"
-
-        # Build a fake /proc with two PIDs: self (111) and foreign (222).
-        proc_root = tmp_path / "proc"
-        for pid in (111, 222, 333):
-            fd_dir = proc_root / str(pid) / "fd"
-            fd_dir.mkdir(parents=True)
-        # PID 222 holds the deleted WAL sidecar
-        os.symlink(db_path_wal + " (deleted)", str(proc_root / "222" / "fd" / "3"))
-        # PID 111 (self) holds the db — should be excluded
-        os.symlink(str(db_path), str(proc_root / "111" / "fd" / "3"))
-        # PID 333 holds an unrelated file
-        other = tmp_path / "other.db"
-        other.touch()
-        os.symlink(str(other), str(proc_root / "333" / "fd" / "3"))
-
-        monkeypatch.setattr(hermes_state_holders.os, "getpid", lambda: 111)
-        real_listdir = os.listdir
-        def _listdir(path):
-            if isinstance(path, str):
-                path = path.replace("/proc", str(proc_root))
-            return real_listdir(path)
-        monkeypatch.setattr(hermes_state_holders.os, "listdir", _listdir)
-        real_readlink = os.readlink
-        def _readlink(path):
-            path = path.replace("/proc", str(proc_root))
-            return real_readlink(path)
-        monkeypatch.setattr(hermes_state_holders.os, "readlink", _readlink)
-        real_stat = os.stat
-        def _stat(path, *args, **kwargs):
-            path_s = str(path).replace("/proc", str(proc_root))
-            if path_s.endswith("/222/fd/3"):
-                # A real /proc fd remains statable after unlink and retains
-                # the deleted sidecar's filesystem identity: same device as
-                # state.db, but an inode no live watched path can reach.
-                fields = list(real_stat(db_path))
-                fields[1] += 1000
-                return os.stat_result(fields)
-            return real_stat(path_s, *args, **kwargs)
-        monkeypatch.setattr(hermes_state_holders.os, "stat", _stat)
-
-        holders = hermes_state_holders.foreign_state_db_holders(db_path)
-        assert holders == [(222, db_path_wal + " (deleted)")]
+        db_path.write_bytes(b"synthetic database identity")
+        sidecar = tmp_path / "state.db-wal"
+        sidecar.write_bytes(b"synthetic sidecar")
+        code = """import os, sys
+with open(sys.argv[1], 'rb') as held:
+    os.unlink(sys.argv[1])
+    print('ready', flush=True)
+    sys.stdin.read(1)
+"""
+        child = subprocess.Popen([sys.executable, "-c", code, str(sidecar)],
+                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        try:
+            assert select.select([child.stdout], [], [], 10)[0], "holder did not start"
+            assert child.stdout.readline().strip() == "ready"
+            assert not sidecar.exists()
+            holders = hermes_state_holders.foreign_state_db_holders(db_path)
+            assert (child.pid, str(sidecar) + " (deleted)") in holders
+            child.communicate("x", timeout=10)
+            assert child.returncode == 0
+            assert not hermes_state_holders.foreign_state_db_holders(db_path)
+        finally:
+            if child.poll() is None:
+                child.kill()
+            child.communicate(timeout=10)
 
     @pytest.mark.platforms("linux")
     def test_foreign_holder_uninspectable_process_cmdline_fallback(

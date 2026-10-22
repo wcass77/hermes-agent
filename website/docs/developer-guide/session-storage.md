@@ -239,7 +239,7 @@ CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id, id);
 Notes:
 - `tool_calls` is stored as a JSON string (serialized list of tool call objects)
 - `reasoning_details`, `codex_reasoning_items`, and `codex_message_items` are stored as JSON strings
-- `reasoning_details` is always kept in history; on the chat-completions wire it is replayed only to OpenRouter and the Nous Portal (every other chat-completions route gets a copy without it, since strict schemas reject the field)
+- `reasoning`, `reasoning_content` and `reasoning_details` are always kept in history. On the chat-completions wire every assistant turn replays its stored reasoning on the carriers the route reads (`agent/message_sanitization.py::route_reasoning_carriers`): `reasoning_content` everywhere by default; plus `reasoning` and `reasoning_details` on OpenRouter-format gateways (OpenRouter, Kilo, Vercel AI Gateway, Nous Portal); `reasoning_details` on Novita, MiniMax `/v1` and TokenHub; `reasoning` on local servers, Ollama and Upstage. Strict schemas (Mistral, Groq, Cerebras, SambaNova) get no reasoning key, and Fireworks gets `reasoning_content` only. Only DeepSeek, Kimi and MiMo pad a reasoning-less tool-call turn with `" "`. When a route rejects a field by name ("Extra inputs are not permitted, field: messages[N].reasoning_details"), Hermes records it for that provider/host/model, strips it and retries once. The record lasts for the session and never touches history.
 - Desktop history hydration retains assistant sidecars in both REST and JSON-RPC (`session.resume`, `session.activate`, `session.history`) projections, including rows with reasoning and tool calls. REST may return the SQLite JSON string while RPC returns decoded items; Desktop accepts both. A final Responses reply may live only in `codex_message_items` while `content` is empty. Canonical content still takes precedence, and analysis/commentary items are not promoted to reply text.
 - `reasoning` stores the raw reasoning text for providers that expose it
 - A reasoning-only clean stop (empty `content`, `finish_reason=stop`, reasoning present) is answered with the reasoning text, but the assistant row is never written with that text as `content`: `content` stays empty, the text lives in `reasoning`/`reasoning_content`, and `api_content` carries it so the next request replays the answer byte-identically. History surfaces therefore show it as reasoning, not as a reply.
@@ -331,7 +331,10 @@ read from `/proc/locks` — SQLite's byte-range `fcntl` locks encode the lock ki
 in their offset (`state.db-shm` byte 120 = WAL write, 121 = checkpoint,
 123-127 = read slots; the 1 GiB pending-byte page on `state.db` = rollback-journal
 PENDING/RESERVED/SHARED). The open-descriptor scan cannot make this distinction
-because every Hermes process has the DB open. Look for that line in
+because every Hermes process has the DB open. If kernel and `stat()` device numbers
+differ (for example on Btrfs subvolumes), the diagnostic verifies each candidate
+descriptor against the database/sidecar identity and reads its `/proc/PID/fdinfo`
+lock records. It never attributes a lock by inode number alone. Look for that line in
 `~/.hermes/logs/errors.log` next to the `database is locked` failure.
 
 Lock contention is recognised by SQLite result code (`SQLITE_BUSY` /

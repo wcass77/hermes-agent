@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Callable, Iterator, Optional
+from hermes_cli.gateway_migrate_listeners import check_profile_listeners
 
 logger = logging.getLogger(__name__)
 
@@ -611,6 +612,7 @@ def _check_secondary_port_binders(plan: MigrationPlan, configs: dict[str, object
 _PREFLIGHT_CHECKS: tuple[Callable[[MigrationPlan, dict[str, object]], None], ...] = (
     _check_duplicate_credentials,
     _check_secondary_port_binders,
+    check_profile_listeners,
 )
 
 
@@ -700,7 +702,7 @@ def format_plan(plan: MigrationPlan, *, dry_run: bool) -> list[str]:
     head = "Migration plan (dry run — nothing changed)" if dry_run else "Migration plan"
     lines = [head, f"  default home: {plan.default_home}", "", "  profile      gateway pid   service"]
     for p in plan.profiles:
-        lines.append(f"  {p.name:<12} {str(p.pid or '-'):<13} {p.service_label()}")
+        lines.append(f"  {p.name:<12} {p.pid or '-'!s:<13} {p.service_label()}")
     if plan.standalone_by_config:
         lines.append(f"  Standalone by config (gateway.standalone: true), left alone: "
                      f"{', '.join(plan.standalone_by_config)}")
