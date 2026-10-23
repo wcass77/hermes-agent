@@ -71,19 +71,50 @@ _INLINE_BACKGROUND_AMP_RE = re.compile(r"\s&\s")
 _TRAILING_BACKGROUND_AMP_RE = re.compile(r"\s&\s*(?:#.*)?$")
 
 
-def _strip_quotes(command: str) -> str:
-    """Blank quoted / backtick content and provably-inert heredoc bodies so
-    regex checks can't match keywords (nohup, setsid, '&') inside strings.
+def _literal_quote_end(command: str, start: int) -> int | None:
+    """End of an inert quote span; executable or unfinished spans stay visible."""
+    quote = command[start]
+    cursor = start + 1
+    while cursor < len(command):
+        char = command[cursor]
+        if char == quote:
+            return cursor + 1
+        if quote == '"' and (char == "`" or command.startswith("$(", cursor)):
+            return None
+        cursor += 2 if quote == '"' and char == "\\" else 1
+    return None
 
-    Heredocs are masked FIRST: their delimiter may itself be quoted
-    (``<<'EOF'``). ``strip_inert_heredoc_bodies`` is conservative — only a
-    quoted, terminated delimiter on a simple opener fed to a known non-shell
-    consumer is masked, so a real background operator can't hide in one.
+
+def _strip_quotes(command: str) -> str:
+    """Mask inert literals in shell order, after conservative heredoc masking.
+
+    Independent quote regexes pair an apostrophe inside double quotes with a
+    later single quote, exposing literal '&' data. Walk spans left to right
+    instead. Unsupported syntax keeps the entire command visible: substitutions
+    and backticks execute shell code, and comments/ANSI quotes need their own
+    lexical rules. Never partially mask an ambiguous command.
     """
-    result = strip_inert_heredoc_bodies(command)
-    result = re.sub(r"'[^']*'", "''", result)
-    result = re.sub(r'"(?:[^"\\]|\\.)*"', '""', result)
-    return re.sub(r"`[^`]*`", "``", result)
+    command = strip_inert_heredoc_bodies(command)
+    result = []
+    cursor = 0
+    while cursor < len(command):
+        char = command[cursor]
+        if char == "\\":
+            end = cursor + 2 if cursor + 1 < len(command) else None
+        elif char in "'\"":
+            end = _literal_quote_end(command, cursor)
+        elif char in "`#" or command.startswith(("$(", "$'"), cursor):
+            return command
+        else:
+            result.append(char)
+            cursor += 1
+            continue
+        if end is None:
+            return command
+        # Preserve token boundaries and newlines without creating new keywords.
+        result.append("".join("\n" if c == "\n" else "_" for c in command[cursor:end]))
+        cursor = end
+    return "".join(result)
 
 
 _LONG_LIVED_FOREGROUND_PATTERNS = tuple(re.compile(p, re.IGNORECASE) for p in (
