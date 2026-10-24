@@ -57,7 +57,29 @@ agent:
 ```
 
 MCP servers that the editor sends with `session/new` are separate. The
-client asks for them per session, and they are always added.
+client asks for them per session. Their tools can be filtered in the active
+profile's `config.yaml`:
+
+```yaml
+acp:
+  mcp_tool_filters:
+    editor-server:
+      include: [read_file, search_*]
+      resources: false
+      prompts: false
+```
+
+Use the client's MCP server name and original tool names. Rules use the same
+exact-name/wildcard `include` and `exclude` matching as configured MCP servers;
+`include` takes precedence, and `include: []` exposes no server-native tools.
+Resource/prompt utility tools are controlled separately by the `resources` and
+`prompts` booleans shown above (both default to true). A server without a filter
+keeps its normal tool catalog. Malformed rules refuse registration.
+The filter is applied before tool search, description and invocation catalogs
+are built, including schema-cached registration. Reconnect the ACP process to
+apply a changed policy to existing conversations. This controls the Hermes tool
+catalog; it does not revoke client credentials or provide a separate sandbox.
+Client commands, environment, URLs and headers remain supplied by the client.
 
 ## Installation
 

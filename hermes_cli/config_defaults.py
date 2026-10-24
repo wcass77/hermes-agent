@@ -4,7 +4,6 @@ Pure-data leaf module — must not import from hermes_cli.config. Comments are t
 docs of config.yaml.
 """
 
-
 from hermes_cli.config_default_helpers import auxiliary_defaults
 
 #: Image every container terminal backend (docker/modal/daytona/singularity) uses unless the
@@ -18,7 +17,6 @@ LEGACY_SANDBOX_IMAGE = LEGACY_SANDBOX_IMAGES[0]
 DEFAULT_VERCEL_IMAGE = "vercel/sandbox/universal:latest"
 LEGACY_VERCEL_RUNTIME = "node24"  # the seeded pre-49 default, never a user choice
 
-
 DEFAULT_CONFIG = {
     "model": "",
     "providers": {},
@@ -29,6 +27,8 @@ DEFAULT_CONFIG = {
     "fallback": {"min_switch_reset_seconds": 0},
     "credential_pool_strategies": {},
     "toolsets": ["hermes-cli"],
+    # Filters for client-injected MCP servers; does not configure or start a server.
+    "acp": {"mcp_tool_filters": {}},
     # journal_mode: SQLite journal mode for every Hermes DB. "wal" default; use "delete" on
     # weak-fsync/shared filesystems where WAL is not crash-safe (macOS virtiofs, NFS, SMB).
     "database": {

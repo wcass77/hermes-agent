@@ -32,6 +32,7 @@ from acp_adapter.events import (
     make_message_cb, make_step_cb, make_thinking_cb, make_tool_progress_cb,
 )
 from acp_adapter.model_catalog import build_model_state, encode_model_choice
+from acp_adapter.mcp_config import client_mcp_server_configs
 from acp_adapter.permissions import make_approval_callback
 from acp_adapter.provenance import session_provenance_meta
 from acp_adapter.session import SessionManager, SessionState, _expand_acp_enabled_toolsets
@@ -165,12 +166,6 @@ def _history_replay_updates(history: list[dict[str, Any]]):
                 plan_update = _build_plan_update_from_todo_result(result_text)
                 if plan_update is not None:
                     yield plan_update
-
-
-def _mcp_server_config(server: McpServerStdio | McpServerHttp | McpServerSse) -> dict:
-    if isinstance(server, McpServerStdio):
-        return {"command": server.command, "args": list(server.args), "env": {i.name: i.value for i in server.env}}
-    return {"url": server.url, "headers": {i.name: i.value for i in server.headers}}
 
 
 def _restore_env(key: str, value: str | None) -> None:
@@ -434,7 +429,7 @@ class HermesACPAgent(SlashCommandsMixin, acp.Agent):
             from agent.runtime_cwd import set_session_cwd
             from tools.mcp_tool_discovery import register_mcp_servers
 
-            configs = {s.name: _mcp_server_config(s) for s in mcp_servers}
+            configs = client_mcp_server_configs(mcp_servers)
 
             def _register_pinned() -> None:
                 # new_session/load_session run outside the per-turn cwd pin; the session's logical cwd is
