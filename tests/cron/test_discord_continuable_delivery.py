@@ -36,4 +36,3 @@ class TestDiscordContinuableDelivery:
         adapter = self._slack_adapter()
         open_thread, _ = self._run_inchannel_delivery({}, adapter, platform_name="discord")
         open_thread.assert_called_once()
-
