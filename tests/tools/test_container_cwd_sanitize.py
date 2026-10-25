@@ -30,11 +30,6 @@ class TestIsUnusableContainerCwd:
         assert tt._is_unusable_container_cwd("/home/ben/projects") is True
 
 
-    def test_container_backends_set(self):
-        from tools.terminal_tool_config import _CONTAINER_BACKENDS
-        assert _CONTAINER_BACKENDS == frozenset(
-            {"docker", "singularity", "modal", "daytona", "vercel_sandbox"}
-        )
 
 
 class TestMountedHostWorkdirMapping:

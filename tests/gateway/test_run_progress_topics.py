@@ -686,8 +686,7 @@ async def test_progress_carries_anchor_for_relay_discord_auto_thread(monkeypatch
         assert call["reply_to"] == "msg-anchor-1", call
         assert (call["metadata"] or {}).get("reply_to_message_id") == "msg-anchor-1", call
         # Discord lifecycle/status sends are marked non-conversational.
-        if call["content"] != "Working on it...":
-            assert (call["metadata"] or {}).get("non_conversational") is True, call
+        assert call["content"] == "Working on it..." or (call["metadata"] or {}).get("non_conversational") is True, call
 
 
 @pytest.mark.asyncio
