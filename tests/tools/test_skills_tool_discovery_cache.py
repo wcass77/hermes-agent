@@ -74,8 +74,8 @@ def test_allowlist_is_fail_closed_for_newly_installed_skill(tmp_path, monkeypatc
     _write_skill(tmp_path, "cat-a", "new-upstream-skill")
     monkeypatch.setattr(st, "_get_allowed_skill_names", lambda: {"approved-skill"})
 
-    visible = sorted(s["name"] for s in st._find_all_skills())
-    everything = sorted(s["name"] for s in st._find_all_skills(skip_disabled=True))
+    visible = sorted(s["name"] for s in st.find_all_skills())
+    everything = sorted(s["name"] for s in st.find_all_skills(skip_disabled=True))
 
     assert visible == ["approved-skill"]
     assert everything == ["approved-skill", "new-upstream-skill"]

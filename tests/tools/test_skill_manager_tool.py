@@ -506,10 +506,12 @@ class TestSkillMutationLock:
                 second.start()
                 assert not second_entered.wait(timeout=0.15), "second writer entered before first committed"
                 release_first.set()
-                first.join(timeout=2)
-                second.join(timeout=2)
+                first.join(timeout=10)
+                second.join(timeout=10)
+                assert not first.is_alive() and not second.is_alive(), "skill writers did not finish"
             content = (tmp_path / "my-skill" / "SKILL.md").read_text()
 
+        assert len(results) == 2
         assert all(result["success"] for result in results)
         assert "# Test Skill Updated" in content
         assert "Step 1 Updated:" in content

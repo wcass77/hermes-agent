@@ -50,7 +50,7 @@ def test_terminal_preflight_executes_literal_once_and_blocks_real_operator(backg
 
     command = '''printf '%s' "Parents' dinner" 'Willy & Mady Cass' '''
     if backgrounded:
-        command += "&"
+        command += "& echo done"
     config = {"env_type": "local", "timeout": 180, "cwd": "/tmp", "host_cwd": None}
     backend = MagicMock()
     backend.execute.return_value = {"output": "literal output", "returncode": 0}
