@@ -60,39 +60,35 @@ def test_private_original_and_derivative_survive_idempotent_retry(tmp_path):
     assert root not in workspace.parents and workspace not in root.parents
 
 
+def _replace_with_symlink(path, target):
+    data = path.read_bytes()
+    path.unlink()
+    target.write_bytes(data)
+    path.symlink_to(target)
+
+
 @pytest.mark.parametrize('corruption', ['original', 'derivative', 'catalog', 'identity',
                                          'private_symlink', 'archive_symlink', 'permissions',
                                          'conflict', 'receipt_missing'])
 def test_completion_fails_without_untampered_matching_evidence(tmp_path, corruption):
     workspace, root, source, item, binding, path, catalog = evidence(tmp_path)
     original = root / 'sha256' / binding['source_sha256'] / 'original.json'
-    if corruption == 'original':
-        original.write_bytes(b'changed')
-    elif corruption == 'derivative':
-        path.write_bytes(b'changed')
-    elif corruption == 'catalog':
-        catalog.write_text('# No receipt')
-    elif corruption == 'identity':
-        catalog.write_text(catalog.read_text().replace(item['message_id'], '<other@example.test>'))
-    elif corruption == 'private_symlink':
-        data = original.read_bytes()
-        original.unlink()
-        target = tmp_path / 'elsewhere'; target.write_bytes(data)
-        original.symlink_to(target)
-    elif corruption == 'archive_symlink':
-        data = path.read_bytes()
-        path.unlink()
-        target = tmp_path / 'elsewhere'; target.write_bytes(data)
-        path.symlink_to(target)
-    elif corruption == 'permissions':
-        original.chmod(0o644)
-    elif corruption == 'conflict':
+    if corruption == 'conflict':
         source.write_text(source.read_text().replace('synthetic-private', 'changed-value'))
         with pytest.raises(SourceReceiptError, match='Conflicting'):
             preserve_source(root, source, item)
         return
-    else:
-        next((root / 'events').glob('*.json')).unlink()
+    actions = {
+        'original': lambda: original.write_bytes(b'changed'),
+        'derivative': lambda: path.write_bytes(b'changed'),
+        'catalog': lambda: catalog.write_text('# No receipt'),
+        'identity': lambda: catalog.write_text(catalog.read_text().replace(item['message_id'], '<other@example.test>')),
+        'private_symlink': lambda: _replace_with_symlink(original, tmp_path / 'elsewhere'),
+        'archive_symlink': lambda: _replace_with_symlink(path, tmp_path / 'elsewhere'),
+        'permissions': lambda: original.chmod(0o644),
+        'receipt_missing': lambda: next((root / 'events').glob('*.json')).unlink(),
+    }
+    actions[corruption]()
     with pytest.raises((SourceReceiptError, OSError)):
         complete_source(workspace, root, binding)
     assert not (root / 'completed').exists()

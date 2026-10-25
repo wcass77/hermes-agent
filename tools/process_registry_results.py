@@ -10,6 +10,7 @@ import logging
 import re
 import sqlite3
 import time
+from hermes_dir_acl import make_user_dir
 
 from hermes_constants import get_hermes_home
 from utils import atomic_json_write
@@ -69,13 +70,13 @@ def save_completed_result(session) -> None:
             # This is the canonical, sensitive recovery copy. The log receipt is
             # diagnostic-only and must never silently replace faithful recovery.
             recovery_dir = get_hermes_home() / "state" / "process-results"
-            recovery_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+            make_user_dir(recovery_dir, mode=0o700, parents=True, exist_ok=True)
             atomic_json_write(recovery_dir / f"{session.id}.json",
                               {**record, "output_transformed": True}, mode=0o600)
             _result_paths(recovery_dir)
             record = {**record, "diagnostic_only": True,
                       "output": redact_terminal_output(record["output"], session.command, force=True)}
-        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        make_user_dir(directory, mode=0o700, parents=True, exist_ok=True)
         atomic_json_write(directory / f"{session.id}.json", record, mode=0o600)
         _result_paths()
     except OSError:

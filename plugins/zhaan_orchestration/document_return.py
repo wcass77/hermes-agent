@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,8 @@ from hermes_state import SessionDB
 import requests
 from agent.secret_scope import get_secret
 from hermes_constants import get_hermes_home
+
+logger = logging.getLogger(__name__)
 
 
 RETURN_ARCHIVED_DOCUMENT_SCHEMA = {
@@ -88,4 +91,5 @@ def return_archived_document_tool(args: dict[str, Any], *, session_id: str = "",
         delivered = response.json()
         return json.dumps({"success": True, "channel": "discord", "document_id": document_id, "message_id": delivered.get("id")})
     except Exception as exc:
+        logger.debug("Archived document return failed", exc_info=True)
         return json.dumps({"success": False, "error": str(exc)})

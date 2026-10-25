@@ -271,6 +271,43 @@ def _is_slug(value: Any) -> bool:
     return isinstance(value, str) and _SLUG.fullmatch(value) is not None
 
 
+def _validate_rule_identity(metadata: dict, path: Path) -> tuple[str, str, int]:
+    rule_id = metadata.get("id")
+    name = metadata.get("name")
+    priority = metadata.get("priority")
+    if not _is_slug(rule_id):
+        raise ValueError("id must be a lowercase kebab-case stable ID")
+    if path.stem != rule_id:
+        raise ValueError("filename must match id")
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("name must be a non-empty string")
+    if not isinstance(priority, int) or isinstance(priority, bool):
+        raise ValueError("priority must be an integer")
+    source = metadata.get("source")
+    people = metadata.get("people")
+    reply = metadata.get("reply")
+    if not _is_slug(source):
+        raise ValueError("source must be a lowercase kebab-case stable ID")
+    if (
+        not isinstance(people, list)
+        or not people
+        or any(not _is_slug(person) for person in people)
+        or len(set(people)) != len(people)
+    ):
+        raise ValueError("people must contain unique lowercase kebab-case IDs")
+    if not isinstance(reply, dict):
+        raise ValueError("reply must be a mapping")
+    _require_exact_keys(
+        reply,
+        allowed={"include_rule_link"},
+        required={"include_rule_link"},
+        label="reply",
+    )
+    if reply.get("include_rule_link") is not True:
+        raise ValueError("reply.include_rule_link must be true")
+    return rule_id, name, priority
+
+
 def load_rule(path: Path) -> EmailRule:
     metadata, instructions = _frontmatter(path)
     _require_exact_keys(
@@ -339,39 +376,7 @@ def load_rule(path: Path) -> EmailRule:
     recipients = frozenset(_address(value) for value in recipient_cfg.get("addresses", []))
     if recipient_cfg and (not recipients or "" in recipients):
         raise ValueError("original_to.addresses must contain valid mailbox addresses")
-    rule_id = metadata.get("id")
-    name = metadata.get("name")
-    priority = metadata.get("priority")
-    if not _is_slug(rule_id):
-        raise ValueError("id must be a lowercase kebab-case stable ID")
-    if path.stem != rule_id:
-        raise ValueError("filename must match id")
-    if not isinstance(name, str) or not name.strip():
-        raise ValueError("name must be a non-empty string")
-    if not isinstance(priority, int) or isinstance(priority, bool):
-        raise ValueError("priority must be an integer")
-    source = metadata.get("source")
-    people = metadata.get("people")
-    reply = metadata.get("reply")
-    if not _is_slug(source):
-        raise ValueError("source must be a lowercase kebab-case stable ID")
-    if (
-        not isinstance(people, list)
-        or not people
-        or any(not _is_slug(person) for person in people)
-        or len(set(people)) != len(people)
-    ):
-        raise ValueError("people must contain unique lowercase kebab-case IDs")
-    if not isinstance(reply, dict):
-        raise ValueError("reply must be a mapping")
-    _require_exact_keys(
-        reply,
-        allowed={"include_rule_link"},
-        required={"include_rule_link"},
-        label="reply",
-    )
-    if reply.get("include_rule_link") is not True:
-        raise ValueError("reply.include_rule_link must be true")
+    rule_id, name, priority = _validate_rule_identity(metadata, path)
     return EmailRule(
         id=rule_id,
         name=name.strip(),
@@ -394,7 +399,7 @@ def load_rules(directory: Path) -> list[EmailRule]:
                 continue
             rules.append(load_rule(path))
         except Exception as exc:
-            logger.error("Skipping invalid Zhaan email intake rule %s: %s", path, exc)
+            logger.error("Skipping invalid Zhaan email intake rule %s: %s", path, exc, exc_info=True)
     return rules
 
 
