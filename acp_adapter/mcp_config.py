@@ -22,6 +22,7 @@ def client_mcp_server_configs(servers: list[McpServerStdio | McpServerHttp | Mcp
 def client_mcp_tool_filters(home=None) -> dict[str, dict]:
     """Read policy from the owning profile, before editor names become session-specific."""
     from hermes_cli.config import load_config
+    from hermes_cli.config_read_errors import FailedConfigRead
     from hermes_constants import reset_hermes_home_override, set_hermes_home_override
 
     token = set_hermes_home_override(home) if home is not None else None
@@ -30,6 +31,10 @@ def client_mcp_tool_filters(home=None) -> dict[str, dict]:
     finally:
         if token is not None:
             reset_hermes_home_override(token)
+    # Interactive config recovery may return defaults or stale policy. Neither is
+    # authority to expose client tools when the current profile cannot be read.
+    if isinstance(config, FailedConfigRead):
+        raise ValueError("Cannot load ACP MCP policy from unreadable or invalid profile configuration")
     acp = config.get("acp", {})
     if not isinstance(acp, dict):
         raise ValueError("acp must be a mapping")

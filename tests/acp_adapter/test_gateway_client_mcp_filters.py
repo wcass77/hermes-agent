@@ -99,3 +99,65 @@ def test_malformed_gateway_policy_fails_before_registration(tmp_path, monkeypatc
         with _borrowed(owner, scope, [filtered_spec], _server_names(scope, [filtered_spec]), str(tmp_path)):
             pytest.fail('Malformed policy exposed a registry scope')
     assert calls == []
+
+
+def test_policy_narrowing_replaces_a_viewer_retained_connection(tmp_path, monkeypatch, filtered_spec):
+    from gateway.session_local_mcp import _borrowed, _server_names, session_scope, release_editor_mcp
+    from tools.mcp_tool import _servers
+    from tools.mcp_tool_scope import _server_key
+    from model_tools import _dispatch_bridge_tool
+
+    monkeypatch.setenv('HERMES_HOME', str(tmp_path))
+    config = tmp_path / 'config.yaml'
+    atomic_config_write(config, {'acp': {'mcp_tool_filters': {'t3-code': {'include': ['read_note', 'write_note']}}}})
+    viewer = SimpleNamespace(subscribers={'editor': object()})
+    owner = SimpleNamespace(profile_id=str(tmp_path), db=SimpleNamespace(db_path=str(tmp_path / 'state.db')),
+                            sessions={'session': viewer})
+    scope = session_scope(owner, 'session')
+    names = _server_names(scope, [filtered_spec])
+    key = _server_key(names[0], scope)
+    try:
+        with _borrowed(owner, scope, [filtered_spec], names, str(tmp_path)) as (schemas, _):
+            assert len(schemas) == 2
+        retained = _servers[key]
+        assert retained.session is not None
+        atomic_config_write(config, {'acp': {'mcp_tool_filters': {'t3-code': {'include': []}}}})
+        with _borrowed(owner, scope, [filtered_spec], names, str(tmp_path)) as (schemas, connected):
+            assert schemas == {} and connected == [0]
+            assert _servers[key] is not retained
+            assert retained.session is None
+            result, target = _dispatch_bridge_tool('tool_call', {
+                'name': f'mcp__{names[0]}__write_note', 'arguments': {}}, [f'mcp-{names[0]}'], [])
+            assert result is not None and target is None
+    finally:
+        viewer.subscribers.clear()
+        release_editor_mcp(owner, ['session'])
+
+
+@pytest.mark.platforms('posix')
+@pytest.mark.parametrize('failure', ['syntax', 'unreadable'])
+@pytest.mark.parametrize('warm', [False, True])
+def test_unreadable_or_invalid_yaml_never_registers_unrestricted_tools(tmp_path, monkeypatch, filtered_spec, failure, warm):
+    from acp_adapter.mcp_config import client_mcp_tool_filters
+    from gateway.session_local_mcp import _borrowed, _server_names, session_scope
+
+    monkeypatch.setenv('HERMES_HOME', str(tmp_path))
+    config = tmp_path / 'config.yaml'
+    atomic_config_write(config, {'acp': {'mcp_tool_filters': {'t3-code': {'include': ['read_note']}}}})
+    if warm:
+        assert client_mcp_tool_filters(tmp_path)['t3-code']['include'] == ['read_note']
+    if failure == 'syntax':
+        config.write_text('acp: [unterminated')
+    else:
+        config.chmod(0)
+    owner = SimpleNamespace(profile_id=str(tmp_path), db=SimpleNamespace(db_path=str(tmp_path / 'state.db')), sessions={})
+    scope = session_scope(owner, 'session')
+    calls = []
+    monkeypatch.setattr('tools.mcp_tool_discovery.register_mcp_servers', lambda configs: calls.append(configs))
+    try:
+        with pytest.raises(ValueError, match='Cannot load ACP MCP policy'):
+            with _borrowed(owner, scope, [filtered_spec], _server_names(scope, [filtered_spec]), str(tmp_path)):
+                pytest.fail('Failed config read exposed an MCP scope')
+        assert calls == []
+    finally:
+        config.chmod(0o600)
