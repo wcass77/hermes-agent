@@ -60,9 +60,6 @@ unreachable otherwise).
 
 ## Development Environment
 
-**Willy's fork:** follow [FORK-UPGRADES.md](FORK-UPGRADES.md) for upgrades,
-final affected tests, recovery/cutover evidence and mandatory scratch cleanup.
-
 `source ./activate` (fish: `activate.fish`, PowerShell: `activate.ps1`) provisions and activates the
 PM environment; pick an isolated `HERMES_HOME`/`HERMES_RUNTIME_DIR` first
 (`website/docs/reference/package-management.md#developer-workflow`). Tests need the separate test
@@ -168,5 +165,5 @@ Every former god file is a **facade** (public entry points + the names other pac
 | `pm/`, `pyproject.toml` | `pm/AGENTS.md` | pinning policy, PM-owned environments, plugin quarantine |
 | `hermes_platform/` | `hermes_platform/AGENTS.md` | host facts, resolvers |
 
-Long-form background: `website/docs/developer-guide/`. Workflow rules (PR/issue/review/salvage
-process) live in the `hermes-agent-dev` skill, not here.
+Fork updates and cleanup: [FORK-UPGRADES.md](FORK-UPGRADES.md).
+Other workflows: `hermes-agent-dev`; background: `website/docs/developer-guide/`.
