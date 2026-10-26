@@ -34,6 +34,9 @@ Use any model you want — [Nous Portal](https://portal.nousresearch.com), OpenR
 
 ## Quick Install
 
+Willy's maintained fork follows [the fork upgrade procedure](FORK-UPGRADES.md)
+for reviewed source updates, recovery verification and temporary-test cleanup.
+
 ### Linux, macOS, WSL2
 
 ```bash

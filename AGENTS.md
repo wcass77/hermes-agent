@@ -60,6 +60,9 @@ unreachable otherwise).
 
 ## Development Environment
 
+**Willy's fork:** follow [FORK-UPGRADES.md](FORK-UPGRADES.md) for upgrades,
+final affected tests, recovery/cutover evidence and mandatory scratch cleanup.
+
 `source ./activate` (fish: `activate.fish`, PowerShell: `activate.ps1`) provisions and activates the
 PM environment; pick an isolated `HERMES_HOME`/`HERMES_RUNTIME_DIR` first
 (`website/docs/reference/package-management.md#developer-workflow`). Tests need the separate test
