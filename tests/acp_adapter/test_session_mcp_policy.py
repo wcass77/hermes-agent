@@ -11,7 +11,10 @@ from hermes_state_runtime import RuntimeStoreError
 
 
 def owner():
-    return SimpleNamespace(instance_id='owned', epoch=1, profile_id='owned-profile')
+    from hermes_constants import get_hermes_home
+    home = get_hermes_home()
+    return SimpleNamespace(instance_id='owned', epoch=1, profile_id='owned-profile',
+                           db=SimpleNamespace(db_path=str(home / 'state.db')))
 
 
 def policy(authority, sid, spec, tmp_path):

@@ -18,6 +18,7 @@ import hashlib
 import hmac
 import json
 import logging
+from pathlib import Path
 import threading
 import uuid
 
@@ -125,7 +126,7 @@ def _frozen_toolset(data, toolset):
     return toolset.startswith(f"mcp-editor_{hashlib.sha256(data['scope'].encode()).hexdigest()[:20]}_")
 
 
-def _configs(servers, names, cwd):
+def _configs(servers, names, cwd, filters):
     configs = {}
     for i, name in names.items():
         spec = servers[i]
@@ -138,6 +139,8 @@ def _configs(servers, names, cwd):
                 config['transport'] = 'sse'
         # One bounded eager discovery; no lazy or late schema refresh.
         config.update(connect_timeout=5, tool_timeout=30, lazy=False)
+        if spec['name'] in filters:
+            config['tools'] = filters[spec['name']]
         configs[name] = config
     return configs
 
@@ -186,9 +189,12 @@ def _borrowed(authority, scope, servers, names, cwd, *, partial=False):
     was frozen with. A held connection is reused; the last borrower closes it unless a viewer remains."""
     from tools.registry import registry, session_tool_scope
     from tools.mcp_tool_discovery import register_mcp_servers
+    from acp_adapter.mcp_config import client_mcp_tool_filters
+    filters = client_mcp_tool_filters(Path(authority.db.db_path).resolve().parent)
+    configs = _configs(servers, names, cwd, filters)
     held = _held(authority, scope)
-    # The cwd too: stdio servers run in it, so a committed workspace move respawns them there.
-    wanted = fingerprint([servers, cwd])
+    # Reconnect when transports, cwd, or owning-profile restrictions change.
+    wanted = fingerprint(configs)
     with session_tool_scope(scope):
         with held.lock:
             if held.fingerprint not in (None, wanted):
@@ -199,7 +205,7 @@ def _borrowed(authority, scope, servers, names, cwd, *, partial=False):
                 _disconnect(held, scope)
             connected = _connected(scope, names)
             if len(connected) != len(names):
-                register_mcp_servers(_configs(servers, names, cwd))
+                register_mcp_servers(configs)
                 connected = _connected(scope, names)
             held.fingerprint = wanted
             held.users += 1
