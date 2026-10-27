@@ -18,6 +18,23 @@ The cron subsystem provides scheduled task execution — from simple one-shot de
 | `gateway/run.py` | Gateway integration — cron ticking in the long-running loop |
 | `hermes_cli/cron.py` | CLI `hermes cron` subcommands |
 
+## Detached worker credential diagnostics
+
+An adopted external worker writes a private startup receipt under its profile's
+`cron/credential-diagnostics/`, named by SHA-256 of the execution ID. The receipt
+records the owning home, lookup outcome categories and whether the startup
+secret scope contains a Discord token. It contains no credential values,
+references, labels, raw errors or command output. Cached reads are labeled
+`cached`; they do not establish that a lookup succeeded. Earlier hydration
+outcomes in the same process are retained, including import-time loads.
+
+Files are atomically written with mode 0600; the newest 128 generated receipts
+are retained. An unavailable receipt produces a generic warning and does not
+alter job admission. These are startup observations, not delivery receipts or
+proof of the credentials used later by the job. The change adds no lookup,
+retry, send or preflight bypass. `hermes_cli/secret_source_diagnostics.py` bounds
+in-memory history to 32 distinct consecutive outcomes for each of 128 homes.
+
 ## Scheduling Model
 
 Four schedule formats are supported:

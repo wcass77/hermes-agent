@@ -175,8 +175,11 @@ def hydrate_profile_secret_sources(hermes_home: str | os.PathLike) -> dict[str, 
 
 def _hydrate_profile_secret_sources(home: Path) -> dict[str, str]:
     """Locked implementation for :func:`hydrate_profile_secret_sources`."""
+    from hermes_cli.secret_source_diagnostics import observe_hydration
+
     home_key = str(home.resolve())
     if home_key in _APPLIED_HOMES:
+        observe_hydration(home, "cached")
         return get_secret_source_values(home)
 
     # A retry must not keep serving a partial result after the source is removed, disabled, or can no
@@ -187,8 +190,10 @@ def _hydrate_profile_secret_sources(home: Path) -> dict[str, str]:
     try:
         cfg = _load_secrets_config(home)
     except Exception:
+        observe_hydration(home, "config_error")
         return {}
     if not cfg:
+        observe_hydration(home, "no_config")
         return {}
 
     try:
@@ -208,8 +213,10 @@ def _hydrate_profile_secret_sources(home: Path) -> dict[str, str]:
         local_env["HERMES_HOME"] = str(home)
         report = apply_all(cfg, home, environ=local_env)
     except Exception:
+        observe_hydration(home, "hydration_error")
         return {}
 
+    observe_hydration(home, "fetched" if report.sources else "no_sources", report)
     if not report.sources:
         return {}
 
@@ -634,8 +641,11 @@ def _apply_external_secret_sources(home_path: Path) -> None:
     tokens), BEFORE Hermes reads credentials; failures never block startup. Precedence/conflicts/provenance
     live in ``registry.apply_all``; this wrapper owns the once-per-home guard, the post-apply ASCII sweep,
     the ``_SECRET_SOURCES`` map and status lines."""
+    from hermes_cli.secret_source_diagnostics import observe_hydration
+
     home_key = str(Path(home_path).resolve())
     if home_key in _APPLIED_HOMES:
+        observe_hydration(home_path, "cached")
         return
 
     # Neither early return marks the home applied: a malformed config.yaml would otherwise permanently
@@ -645,10 +655,12 @@ def _apply_external_secret_sources(home_path: Path) -> None:
         cfg = _load_secrets_config(home_path)
     except Exception:
         # See #40597.
+        observe_hydration(home_path, "config_error")
         return
     # No source configured / enabled any more: whatever one wrote earlier is no longer backed (#126982
     # review). A config READ failure above keeps them — fail-open, same as the fetch-failure path below.
     if not cfg:
+        observe_hydration(home_path, "no_config")
         _revoke_secret_source_writes(home_path, keep=lambda _name, _source: False)
         return
 
@@ -657,12 +669,14 @@ def _apply_external_secret_sources(home_path: Path) -> None:
     # flag), not names, so plugin/test sources pass and a plain dict entry never forces the crypto load.
     any_enabled = any(isinstance(v, dict) and v.get("enabled") is True for v in cfg.values())
     if not any_enabled:
+        observe_hydration(home_path, "no_sources")
         _revoke_secret_source_writes(home_path, keep=lambda _name, _source: False)
         return
 
     try:
         from agent.secret_sources.registry import apply_all, enabled_source_names
     except ImportError:
+        observe_hydration(home_path, "registry_unavailable")
         return
 
     # Revoke a removed/disabled source's writes BEFORE the pass: left in place, its stale value would make
@@ -678,8 +692,10 @@ def _apply_external_secret_sources(home_path: Path) -> None:
     try:
         report = apply_all(cfg, home_path)
     except Exception:
+        observe_hydration(home_path, "hydration_error")
         return
 
+    observe_hydration(home_path, "fetched" if report.sources else "no_sources", report)
     if not report.sources:  # no source enabled: keep retrying cheaply so flipping one on takes effect
         return
 
