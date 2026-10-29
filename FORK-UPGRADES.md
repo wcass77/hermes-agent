@@ -30,6 +30,7 @@ migration checks only when the new change affects them.
 ## 2. Prepare isolated tests and control temporary storage
 
 - Check available bytes and inodes on the filesystems holding the checkout,
+  <!-- no-tmp: ok — capacity inspection, not a scratch allocation -->
   runtime, test scratch, `/tmp` and `/var/tmp` before a large run. Record baseline
   usage, a run-specific storage budget and a stop threshold that leaves room for
   live services. Check usage during long runs; do not wait for exhaustion.
@@ -44,6 +45,7 @@ migration checks only when the new change affects them.
 - Allocate non-runner build/rehearsal scratch explicitly on disk, with private
   permissions and short paths where Unix sockets require them. Record exact
   owned directories and child process identities. Avoid large RAM-backed
+  <!-- no-tmp: ok — explicitly prohibits RAM-backed fixtures -->
   `/tmp` fixtures, shared pytest roots and unlimited parallel workers.
 - Choose bounded concurrency and realistic per-file timeouts. Investigate
   killed/timed-out files before retrying; split diagnostic selections when
@@ -135,6 +137,7 @@ before handing back a preparation phase, and again after deployment verification
 3. Inspect and remove only the exact run-owned temporary roots, copied test
    databases, disposable environments and build caches no longer needed. Verify
    ownership, resolved paths, mount boundaries and absence of active users first.
+   <!-- no-tmp: ok — explicitly prohibits sweeping shared directories -->
    Never sweep all of `/tmp`, `/var/tmp`, shared caches or wildcard Hermes paths.
    Keep required deployment artifacts and rollback checkpoints until released.
 4. Recheck bytes/inodes and confirm no run-owned children, mounts or scratch remain
