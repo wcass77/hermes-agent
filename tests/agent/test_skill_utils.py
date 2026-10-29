@@ -209,7 +209,10 @@ class TestMultiprofileRawConfigCache:
         try:
             with ThreadPoolExecutor(max_workers=16) as pool:
                 futures = [pool.submit(hammer, t) for t in range(16)]
-                errors = [f.exception(timeout=60) for f in futures]
+                # The 1 µs switch interval plus guarded filesystem reads took
+                # ~180 s on the loaded Python 3.11 matrix; preserve the stress,
+                # with a deadline inside the runner's bounded file budget.
+                errors = [f.exception(timeout=300) for f in futures]
         finally:
             sys.setswitchinterval(old_interval)
         assert errors == [None] * 16
