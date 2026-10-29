@@ -6,6 +6,7 @@ import socket
 import pytest
 
 from hermes_constants import reset_hermes_home_override, set_hermes_home_override
+from agent.secret_scope import set_secret_scope, reset_secret_scope
 from tools import browser_tool as bt
 from tools import browser_tool_session as session
 from tools import browser_tool_eval_policy as policy
@@ -120,8 +121,14 @@ def test_profile_endpoint_and_website_denials_are_preserved(configured, monkeypa
     finally:
         reset_hermes_home_override(token)
     assert bt.evaluate_url_safety(url) is None
+    # Launch-profile environment must not override a routed profile's configured browser.
     monkeypatch.setenv("BROWSER_CDP_URL", "http://127.0.0.1:9333")
-    assert bt.evaluate_url_safety(url) is not None
+    assert bt.evaluate_url_safety(url) is None
+    scoped = set_secret_scope({"BROWSER_CDP_URL": "http://127.0.0.1:9333"}, profile_home=str(configured))
+    try:
+        assert bt.evaluate_url_safety(url) is not None
+    finally:
+        reset_secret_scope(scoped)
     monkeypatch.delenv("BROWSER_CDP_URL")
     monkeypatch.setattr(bt, "check_website_access", lambda url: {
         "message": "Denied by owner", "host": HOST, "rule": HOST, "source": "test"})

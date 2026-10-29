@@ -1,4 +1,4 @@
-"""Regression tests for the _find_all_skills discovery cache (#58985 salvage).
+"""Regression tests for the find_all_skills discovery cache (#58985 salvage).
 
 Covers the cache-signature fix layered on the cherry-picked contributor
 commit: the original keyed the cache on the max mtime of only the TOP-LEVEL
@@ -45,14 +45,14 @@ def test_cache_hit_serves_copies_not_cache_objects(tmp_path):
     """Callers mutate the returned dicts (web_server annotates
     s['enabled']/s['usage']) — the cache must hand out per-call copies."""
     _write_skill(tmp_path, "cat-a", "skill-one")
-    first = st._find_all_skills()
+    first = st.find_all_skills()
     assert [s["name"] for s in first] == ["skill-one"]
 
     # Mutate what the first caller got; the next (cached) call must be clean.
     first[0]["enabled"] = False
     first.append({"name": "junk"})
 
-    second = st._find_all_skills()
+    second = st.find_all_skills()
     assert [s["name"] for s in second] == ["skill-one"]
     assert "enabled" not in second[0], "cache poisoned by caller mutation"
     assert second is not first
@@ -63,8 +63,8 @@ def test_disabled_and_full_views_cached_separately(tmp_path, monkeypatch):
     _write_skill(tmp_path, "cat-a", "skill-two")
     monkeypatch.setattr(st, "_get_disabled_skill_names", lambda: {"skill-two"})
 
-    filtered = sorted(s["name"] for s in st._find_all_skills())
-    everything = sorted(s["name"] for s in st._find_all_skills(skip_disabled=True))
+    filtered = sorted(s["name"] for s in st.find_all_skills())
+    everything = sorted(s["name"] for s in st.find_all_skills(skip_disabled=True))
     assert filtered == ["skill-one"]
     assert everything == ["skill-one", "skill-two"]
 
@@ -74,8 +74,8 @@ def test_allowlist_is_fail_closed_for_newly_installed_skill(tmp_path, monkeypatc
     _write_skill(tmp_path, "cat-a", "new-upstream-skill")
     monkeypatch.setattr(st, "_get_allowed_skill_names", lambda: {"approved-skill"})
 
-    visible = sorted(s["name"] for s in st._find_all_skills())
-    everything = sorted(s["name"] for s in st._find_all_skills(skip_disabled=True))
+    visible = sorted(s["name"] for s in st.find_all_skills())
+    everything = sorted(s["name"] for s in st.find_all_skills(skip_disabled=True))
 
     assert visible == ["approved-skill"]
     assert everything == ["approved-skill", "new-upstream-skill"]

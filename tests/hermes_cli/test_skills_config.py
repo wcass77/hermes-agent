@@ -159,7 +159,7 @@ class TestGetDisabledSkillNames:
 
 
 # ---------------------------------------------------------------------------
-# _find_all_skills — disabled filtering
+# find_all_skills — disabled filtering
 # ---------------------------------------------------------------------------
 
 class TestFindAllSkillsFiltering:
@@ -176,8 +176,8 @@ class TestFindAllSkillsFiltering:
         import agent.skill_utils as _su
         monkeypatch.setattr(_st, "SKILLS_DIR", tmp_path)
         monkeypatch.setattr(_su, "get_external_skills_dirs", list)
-        from tools.skills_tool import _find_all_skills
-        skills = _find_all_skills()
+        from tools.skills_tool import find_all_skills
+        skills = find_all_skills()
         assert not any(s["name"] == "my-skill" for s in skills)
 
 

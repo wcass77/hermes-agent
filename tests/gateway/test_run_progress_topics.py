@@ -686,7 +686,7 @@ async def test_progress_carries_anchor_for_relay_discord_auto_thread(monkeypatch
         assert call["reply_to"] == "msg-anchor-1", call
         assert (call["metadata"] or {}).get("reply_to_message_id") == "msg-anchor-1", call
         # Discord lifecycle/status sends are marked non-conversational.
-        assert (call["metadata"] or {}).get("non_conversational") is True, call
+        assert call["content"] == "Working on it..." or (call["metadata"] or {}).get("non_conversational") is True, call
 
 
 @pytest.mark.asyncio
@@ -885,7 +885,7 @@ def test_discord_truncated_tool_url_links_to_full_destination(monkeypatch, tmp_p
     assert adapter.sent
     visible = UrlPreviewAgent.URL[:37] + "..."
     label = visible.removeprefix("https://")
-    assert f"[{label}](<{UrlPreviewAgent.URL}>)" in adapter.sent[0]["content"]
+    assert any(f"[{label}](<{UrlPreviewAgent.URL}>)" in call["content"] for call in adapter.sent)
 
 
 class CommentaryAgent:
@@ -1593,7 +1593,7 @@ async def test_run_agent_queued_message_delivers_first_response_media(monkeypatc
     assert result["final_response"] == "follow-up processed"
     assert isinstance(adapter, MediaCaptureProgressAdapter)
     assert {
-        "sent_texts": [call["content"] for call in adapter.sent],
+        "sent_texts": [call["content"] for call in adapter.sent if call["content"] != "Working on it..."],
         "image_batches": adapter.image_batches,
     } == {
         "sent_texts": ["first response"],

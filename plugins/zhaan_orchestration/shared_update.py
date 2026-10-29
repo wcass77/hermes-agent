@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import datetime as dt
 import json
+import logging
 from pathlib import Path
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
@@ -10,6 +11,8 @@ from zoneinfo import ZoneInfo
 from .store import Store
 from agent.secret_scope import get_secret_str
 from hermes_constants import get_hermes_home
+
+logger = logging.getLogger(__name__)
 
 
 POST_SHARED_UPDATE_SCHEMA = {
@@ -176,7 +179,7 @@ class SharedUpdateService:
             try:
                 db.reopen_session(session_id)
             except Exception:
-                pass
+                logger.debug("Weekly session reopen failed", exc_info=True)
 
         origin = {
             "platform": "discord",
@@ -223,6 +226,7 @@ class SharedUpdateService:
                         )
                         mirrored = True
                     except Exception as exc:
+                        logger.debug("Weekly session persistence failed", exc_info=True)
                         return {
                             "success": False,
                             "discord_sent": True,
@@ -301,6 +305,7 @@ def post_shared_update_tool(args: dict[str, Any], **_kwargs) -> str:
     try:
         return json.dumps(configured_service().post(args.get("message", "")))
     except Exception as exc:
+        logger.debug("Shared update failed", exc_info=True)
         return json.dumps({
             "success": False,
             "discord_sent": False,
