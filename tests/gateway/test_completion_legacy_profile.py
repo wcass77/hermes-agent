@@ -132,13 +132,13 @@ async def test_dispatch_legacy_completion_admits_once_in_owner_profile(homes, mo
         executed = []
 
         async def turn(event):
-            executed.append((event.source.profile, get_hermes_home()))
+            executed.append((event.source.profile or 'default', get_hermes_home()))
             return 'fabricated reply'
 
         monkeypatch.setattr(runner, '_handle_message', turn)
         with _profile_runtime_scope(home, prepared_secret_scope={}):
             restored, route = check_automation_route(runner, payload, receipt.ref.session_id, source, adapter)
-            assert restored.profile == profile and route == key
+            assert (restored.profile or 'default') == profile and route == key
             await execute_admission(authority, receipt.ref, rows[-1])
         assert executed == [(profile, home)]
         assert payload == rows[-1]['payload']  # restore never changes the retry fingerprint

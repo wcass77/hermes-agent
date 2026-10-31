@@ -326,8 +326,18 @@ def admission_display(payload):
     return card
 
 
-def _route_identity(source):
-    return {key: value for key, value in source.to_dict().items() if key != 'message_id'}
+def _route_identity(runner, source, session_key):
+    from gateway.completion_profile import completion_source
+    from gateway.session_identity import IdentityUnresolved
+    try:
+        source = completion_source(runner, source, session_key)
+    except IdentityUnresolved as exc:
+        raise RuntimeStoreError('admission_conflict') from exc
+    identity = {key: value for key, value in source.to_dict().items() if key != 'message_id'}
+    if getattr(runner.config, 'multiplex_profiles', False) and identity.get('profile') == 'default':
+        # Compare the effective runtime, retaining serialized source bytes for fingerprints/seals.
+        identity.pop('profile')
+    return identity
 
 
 def committed_route_envelope(authority, entry):
@@ -366,7 +376,8 @@ def snapshot_automation(authority, adapter, event, identity):
         key: value for key, value in envelope.items() if key != 'media'}}, runner)
     # Synthetic wakes clear ``message_id`` (#52694, #123097) while the committed human source keeps
     # it, so compare the routing/provenance identity, never the platform reply anchor.
-    if (_route_identity(restored.source) != _route_identity(event.source)
+    if (_route_identity(runner, restored.source, entry.session_key)
+            != _route_identity(runner, event.source, entry.session_key)
             or runner._adapter_for_source(restored.source) is not adapter):
         raise RuntimeStoreError('admission_conflict')
     provenance = deepcopy(envelope['provenance'])

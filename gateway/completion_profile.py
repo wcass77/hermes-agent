@@ -28,7 +28,9 @@ def completion_source(runner, source, session_key):
         raise IdentityUnresolved('Completion identity contradicts its canonical route')
     if not profile_exists(profile):
         raise IdentityUnresolved('Completion route profile is unavailable')
-    corrected = replace_source(source, profile=profile)
+    # An omitted default label is part of native admission's durable principal and
+    # relay seals. Recover named runtimes without changing that historical spelling.
+    corrected = replace_source(source, profile=explicit or (profile if profile != 'default' else None))
     # Never use the live source resolver's missing-profile fallback for a pinned completion.
     home = get_profile_dir(profile)
     registry = getattr(runner, 'session_authorities', None)

@@ -277,7 +277,11 @@ def restore_native_source(payload, runner=None):
             # Relay seals bind the original source bytes, so never rewrite their input.
             if not source.profile and 'relay' not in envelope['provenance']:
                 from gateway.completion_profile import completion_source
-                source = completion_source(runner, source, envelope['route'])
+                from gateway.session_identity import IdentityUnresolved
+                try:
+                    source = completion_source(runner, source, envelope['route'])
+                except IdentityUnresolved as exc:
+                    raise RuntimeStoreError('profile_mismatch') from exc
             restore_provenance(runner, source, envelope['provenance'])
     return source
 
