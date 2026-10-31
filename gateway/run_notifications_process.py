@@ -28,6 +28,10 @@ def retry_process_watcher(method):
                 return await method(runner, watcher, progress)
             except IdentityUnresolved as exc:
                 from gateway.run_notifications import _COMPLETION_INJECTION_RETRY_MAX_DELAY
+                from tools.process_registry import process_registry
+                # Profile recovery is irrelevant once the process no longer exists.
+                if process_registry.get(watcher['session_id']) is None:
+                    return
                 attempt += 1
                 logger.warning('Process watcher profile unresolved; retaining watcher for retry: %s', exc)
                 await asyncio.sleep(jittered_backoff(
