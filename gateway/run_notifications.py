@@ -724,6 +724,7 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
         See #9290.
         """
         from gateway.run import _drain_gateway_watch_events, _format_gateway_process_notification
+        from gateway.session_identity import IdentityUnresolved
         watch_events = _drain_gateway_watch_events(completion_queue)
         for evt in watch_events:
             next_retry_at = evt.get("_watch_next_retry_at")
@@ -732,24 +733,28 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
                 # instead of re-attempting admission every 2 s (#140899).
                 completion_queue.put(evt)
                 continue
-            async with self._completion_event_scope(evt):
-                from tools.process_registry_notifications import should_surface_notification
-                if not should_surface_notification(evt):
-                    continue
-                if self._load_background_notifications_mode() == "off":
-                    continue
-                if evt.get("type") == "heartbeat":
-                    from gateway.session_automation import deliver_heartbeat
-                    delivered = await deliver_heartbeat(self, evt)
-                else:
-                    synth_text = _format_gateway_process_notification(evt)
-                    if not synth_text:
+            try:
+                async with self._completion_event_scope(evt):
+                    from tools.process_registry_notifications import should_surface_notification
+                    if not should_surface_notification(evt):
                         continue
-                    try:
-                        delivered = await self._inject_watch_notification(synth_text, evt)
-                    except Exception:
-                        logger.exception("Watch notification injection error")
-                        delivered = False
+                    if self._load_background_notifications_mode() == "off":
+                        continue
+                    if evt.get("type") == "heartbeat":
+                        from gateway.session_automation import deliver_heartbeat
+                        delivered = await deliver_heartbeat(self, evt)
+                    else:
+                        synth_text = _format_gateway_process_notification(evt)
+                        if not synth_text:
+                            continue
+                        try:
+                            delivered = await self._inject_watch_notification(synth_text, evt)
+                        except Exception:
+                            logger.exception("Watch notification injection error")
+                            delivered = False
+            except IdentityUnresolved as exc:
+                logger.warning("Watch profile unresolved; retaining event for retry: %s", exc)
+                delivered = False
             # The original event: a requeued tick folds again from what is still queued.
             if delivered is False:
                 self._requeue_refused_watch_event(completion_queue, evt)
@@ -1767,6 +1772,21 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
         return future is not None
 
     async def _run_process_watcher(self, watcher: dict) -> None:
+        """Keep the process watcher alive while its profile route cannot be proven."""
+        from gateway.session_identity import IdentityUnresolved
+        attempt = 0
+        while True:
+            try:
+                await self._run_process_watcher_attempt(watcher)
+                return
+            except IdentityUnresolved as exc:
+                attempt += 1
+                logger.warning("Process watcher profile unresolved; retaining watcher for retry: %s", exc)
+                await asyncio.sleep(jittered_backoff(
+                    attempt, base_delay=max(watcher["check_interval"], 1) * 2,
+                    max_delay=_COMPLETION_INJECTION_RETRY_MAX_DELAY, jitter_ratio=0.0))
+
+    async def _run_process_watcher_attempt(self, watcher: dict) -> None:
         """Poll a background process and push updates until it exits. Mode
         (``display.background_process_notifications``): concise (default one-liner; failures append
         the output tail) / all (running updates + final raw) / result (final raw) / error (final raw
