@@ -1775,6 +1775,32 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
         )
         return future is not None
 
+    async def _offer_process_completion(
+        self, watcher: dict, session, progress: ProcessWatcherProgress, notify_mode: str,
+        completion_evt: dict, synth_text: str,
+    ) -> bool:
+        """Offer once within the watcher's budget; return whether that completion is finished."""
+        platform_name = watcher.get("platform", "")
+        # Capture before injection: a queued follow-up itself makes the key busy.
+        turn_busy = await self._launching_turn_active(platform_name, watcher)
+        delivered = await self._enqueue_process_completion_notification(synth_text, completion_evt)
+        if delivered is not False:
+            # While the launching turn is busy, its admitted follow-up still needs a concise receipt.
+            if turn_busy and (notify_mode in {"concise", "all", "result"} or (
+                notify_mode == "error" and session.exit_code not in {0, None}
+            )):
+                session_id = watcher["session_id"]
+                message_text = self._format_process_final_message(session_id, session, "concise")
+                await self._send_watcher_message(
+                    platform_name, watcher.get("chat_id", ""), watcher.get("thread_id", ""), message_text, watcher)
+            return True
+        progress.completion_attempts += 1
+        if progress.completion_attempts < _MAX_COMPLETION_INJECTION_ATTEMPTS:
+            progress.retry_interval = jittered_backoff(
+                progress.completion_attempts, base_delay=max(watcher["check_interval"], 1) * 2,
+                max_delay=_COMPLETION_INJECTION_RETRY_MAX_DELAY, jitter_ratio=0.0)
+        return False
+
     @retry_process_watcher
     async def _run_process_watcher(self, watcher: dict, progress: ProcessWatcherProgress) -> None:
         """Poll a background process and push updates until it exits. Mode
@@ -1826,29 +1852,14 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
                     synth_text = format_process_notification(completion_evt)
                     if not synth_text:
                         break
-                    # Captured before injection: afterwards the key is busy either way (the injected
-                    # turn itself installs the guard).
-                    turn_busy = await self._launching_turn_active(platform_name, watcher)
-                    delivered = await self._enqueue_process_completion_notification(synth_text, completion_evt)
-                    if delivered is not False:
-                        # The agent normally reports the result itself, so the chat gets no separate
-                        # receipt. While the launching turn is still running the injection only queues a
-                        # follow-up, and the chat would stay mute for as long as that turn lasts
-                        # (#112033): send the concise receipt now.
-                        if turn_busy and (notify_mode in {"concise", "all", "result"} or (
-                            notify_mode == "error" and session.exit_code not in {0, None}
-                        )):
-                            message_text = self._format_process_final_message(session_id, session, "concise")
-                            await self._send_watcher_message(platform_name, chat_id, thread_id, message_text, watcher)
-                        break
-                    # A refusal may clear (adapter reconnecting, store draining), so retry with backoff
-                    # for a few minutes, then fall through to the plain notice instead of dropping it.
-                    progress.completion_attempts += 1
                     if progress.completion_attempts < _MAX_COMPLETION_INJECTION_ATTEMPTS:
-                        progress.retry_interval = jittered_backoff(
-                            progress.completion_attempts, base_delay=max(interval, 1) * 2,
-                            max_delay=_COMPLETION_INJECTION_RETRY_MAX_DELAY, jitter_ratio=0.0)
-                        continue
+                        if await self._offer_process_completion(
+                                watcher, session, progress, notify_mode, completion_evt, synth_text):
+                            break
+                        if progress.completion_attempts < _MAX_COMPLETION_INJECTION_ATTEMPTS:
+                            continue
+                    # Once fallback begins, profile retries must not offer another completion.
+                    # Keep rechecking lost ACK and consumption before the fallback can send.
                     if (getattr(self, 'session_authority', None) is not None
                             and self._completion_delivery_identity(completion_evt) is not None):
                         from gateway.session_automation import completion_admission
