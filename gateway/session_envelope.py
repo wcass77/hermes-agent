@@ -272,6 +272,16 @@ def restore_native_source(payload, runner=None):
         from gateway.session_ingress_context import callback_runner, restore_provenance
         runner = runner or callback_runner()
         if runner is not None:
+            # Repair only an absent legacy runtime label; provenance still has to prove
+            # this route's transport and runtime homes. Keep serialized bytes for retries.
+            # Relay seals bind the original source bytes, so never rewrite their input.
+            if not source.profile and 'relay' not in envelope['provenance']:
+                from gateway.completion_profile import completion_source
+                from gateway.session_identity import IdentityUnresolved
+                try:
+                    source = completion_source(runner, source, envelope['route'])
+                except IdentityUnresolved as exc:
+                    raise RuntimeStoreError('profile_mismatch') from exc
             restore_provenance(runner, source, envelope['provenance'])
     return source
 

@@ -25,6 +25,7 @@ from gateway.session import SessionEntry, SessionSource, SessionStore
 from gateway.run_shutdown import _delivery_target_key, _log_suppressed, _notice_target_key, _send_error, _send_failed
 from gateway.run_notifications_update import GatewayUpdateNotificationsMixin
 from gateway.run_notifications_ownership import GatewayNotificationOwnershipMixin
+from gateway.run_notifications_process import ProcessWatcherProgress, retry_process_watcher
 
 # Log-record parity with the origin module.
 logger = logging.getLogger("gateway.run")
@@ -647,6 +648,7 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
         Prefer the persisted session-store origin; the active foreground event causes cross-topic bleed.
         """
         from gateway.run import _parse_session_key
+        from gateway.completion_profile import completion_source
         session_key = str(evt.get("session_key") or "").strip()
         derived = {}
         if session_key:
@@ -654,12 +656,17 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
                 self.session_store._ensure_loaded()
                 entry = self.session_store._entries.get(session_key)
                 if entry and getattr(entry, "origin", None):
-                    return self._restored_source(entry)
+                    stored_source = self._restored_source(entry)
+                else:
+                    stored_source = None
             except Exception as exc:
                 logger.debug("Synthetic process-event session-store lookup failed for %s: %s", session_key, exc)
+            else:
+                if stored_source is not None:
+                    return completion_source(self, stored_source, session_key)
             cached_source = self._get_cached_session_source(session_key)
             if cached_source is not None:
-                return cached_source
+                return completion_source(self, cached_source, session_key)
             derived = _parse_session_key(session_key) or {}
         profile = derived.get("profile")
         platform_name = str(evt.get("platform") or derived.get("platform") or "").strip().lower()
@@ -702,10 +709,10 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
                 "without scope_id; scoped relay egress may be declined by "
                 "the connector's tenant guard (user_id fallback only).", platform_name, chat_id, chat_type,
             )
-        return SessionSource(
+        return completion_source(self, SessionSource(
             platform=platform, chat_id=chat_id, chat_type=chat_type, thread_id=_opt("thread_id"),
             user_id=_opt("user_id"), user_name=_opt("user_name"), scope_id=scope_id, profile=profile,
-        )
+        ), session_key)
 
     async def _drain_watch_notifications(self, completion_queue) -> None:
         """Consume queued watch events and inject them when notifications are enabled.
@@ -718,6 +725,7 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
         See #9290.
         """
         from gateway.run import _drain_gateway_watch_events, _format_gateway_process_notification
+        from gateway.session_identity import IdentityUnresolved
         watch_events = _drain_gateway_watch_events(completion_queue)
         for evt in watch_events:
             next_retry_at = evt.get("_watch_next_retry_at")
@@ -726,24 +734,28 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
                 # instead of re-attempting admission every 2 s (#140899).
                 completion_queue.put(evt)
                 continue
-            async with self._completion_event_scope(evt):
-                from tools.process_registry_notifications import should_surface_notification
-                if not should_surface_notification(evt):
-                    continue
-                if self._load_background_notifications_mode() == "off":
-                    continue
-                if evt.get("type") == "heartbeat":
-                    from gateway.session_automation import deliver_heartbeat
-                    delivered = await deliver_heartbeat(self, evt)
-                else:
-                    synth_text = _format_gateway_process_notification(evt)
-                    if not synth_text:
+            try:
+                async with self._completion_event_scope(evt):
+                    from tools.process_registry_notifications import should_surface_notification
+                    if not should_surface_notification(evt):
                         continue
-                    try:
-                        delivered = await self._inject_watch_notification(synth_text, evt)
-                    except Exception:
-                        logger.exception("Watch notification injection error")
-                        delivered = False
+                    if self._load_background_notifications_mode() == "off":
+                        continue
+                    if evt.get("type") == "heartbeat":
+                        from gateway.session_automation import deliver_heartbeat
+                        delivered = await deliver_heartbeat(self, evt)
+                    else:
+                        synth_text = _format_gateway_process_notification(evt)
+                        if not synth_text:
+                            continue
+                        try:
+                            delivered = await self._inject_watch_notification(synth_text, evt)
+                        except Exception:
+                            logger.exception("Watch notification injection error")
+                            delivered = False
+            except IdentityUnresolved as exc:
+                logger.warning("Watch profile unresolved; retaining event for retry: %s", exc)
+                delivered = False
             # The original event: a requeued tick folds again from what is still queued.
             if delivered is False:
                 self._requeue_refused_watch_event(completion_queue, evt)
@@ -1212,7 +1224,7 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
             yield
 
     async def _deliver_completion_notification(
-        self, synth_text: str, evt: dict, *, sibling_claims=(),
+        self, synth_text: str, evt: dict,
     ) -> Optional[bool]:
         """Acknowledge one admitted batch, refund refusals, or release failed deliveries.
 
@@ -1220,20 +1232,22 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
         terminal. False remains retryable. Claims are settled together for every sibling.
         """
         async with self._completion_event_scope(evt):
-            return await self._deliver_completion_notification_scoped(
-                synth_text, evt, sibling_claims=sibling_claims)
+            return await self._deliver_completion_notification_scoped(synth_text, evt)
 
     async def _deliver_completion_notification_scoped(
         self, synth_text: str, evt: dict, *, sibling_claims=(),
     ) -> Optional[bool]:
         from gateway.wake import WakeNotAccepted
+        from gateway.session_identity import IdentityUnresolved
         from tools.process_registry_notifications import should_surface_notification
-        if not should_surface_notification(evt):
-            return None  # Suppressed noise is terminal, not a consumed process result.
-        identity = self._completion_delivery_identity(evt)
+        identity = None
         claim = self._CompletionClaim()
         accepted = identity_claimed = refused = False
         try:
+            if not should_surface_notification(evt):
+                claim.defer = True  # Refund any siblings already claimed by the scoped group.
+                return None  # Suppressed noise is not a consumed process result.
+            identity = self._completion_delivery_identity(evt)
             claim = await self._preflight_completion_delivery(evt)
             if not claim.proceed:
                 return claim.early_result
@@ -1262,11 +1276,10 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
                 with self._completion_delivery_lock:
                     self._mark_completions_delivered_locked((identity,))
             return True
-        except WakeNotAccepted as exc:
-            # A proven-permanent refusal spends its durable attempt, so the row converges to
-            # ``dropped`` across restarts too (#141153); any other (restart wait, full FIFO, an owner
-            # not yet proven) is refunded and never drops a completion the owner will take later.
-            refused = not exc.permanent
+        except (WakeNotAccepted, IdentityUnresolved) as exc:
+            # Only a proven-permanent admission refusal spends the attempt. Routing uncertainty
+            # has no permanent verdict; refund it in the owner scope established before claiming.
+            refused = not getattr(exc, 'permanent', False)
             return False
         finally:
             if identity_claimed and not accepted:
@@ -1472,7 +1485,7 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
             for evt in group:
                 text = _format_gateway_process_notification(evt)
                 if text:
-                    outcomes.append(await self._deliver_completion_notification(text, evt))
+                    outcomes.append(await self._deliver_completion_notification_scoped(text, evt))
             return False if False in outcomes else True
         deliverable: list[tuple[dict, str]] = []
         acknowledged = False
@@ -1483,11 +1496,11 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
             if getattr(self, 'session_authority', None) is not None:
                 from gateway.session_automation import completion_admission
                 if completion_admission(self, evt) is not None:
-                    acknowledged = await self._deliver_completion_notification(synth_text, evt) is True or acknowledged
+                    acknowledged = await self._deliver_completion_notification_scoped(synth_text, evt) is True or acknowledged
                     continue
             parent = str(evt.get("parent_session_id") or "")
             if parent and await self._classify_completion_target(parent, str(evt.get("session_key") or "")) == "terminal":
-                await self._deliver_completion_notification(synth_text, evt)
+                await self._deliver_completion_notification_scoped(synth_text, evt)
                 continue
             identity = self._completion_delivery_identity(evt)
             if identity is not None and self._completion_identity_seen(identity):
@@ -1497,12 +1510,14 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
             return True if acknowledged else None
         if len(deliverable) == 1:
             evt, synth_text = deliverable[0]
-            return await self._deliver_completion_notification(synth_text, evt)
+            return await self._deliver_completion_notification_scoped(synth_text, evt)
         # Check the entire group before claiming ANY row: an unavailable sibling must
         # not exhaust its budget just because the primary has a usable route.
         for evt, _text in deliverable:
             if not await self._completion_delivery_ready(evt):
                 return False
+        # The outer group proved this home; keep it bound through admission and every refund.
+        # Reacquiring a scope after sibling claims could refuse before their cleanup boundary.
         from tools.async_delegation import claim_event_delivery
         primary_evt, primary_text = deliverable[0]
         blocks = [primary_text]
@@ -1515,7 +1530,7 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
             siblings.append((evt, claim_id))
             blocks.append(synth_text)
         if not siblings:
-            return await self._deliver_completion_notification(primary_text, primary_evt)
+            return await self._deliver_completion_notification_scoped(primary_text, primary_evt)
         header = (
             f"[IMPORTANT: {len(blocks)} background subagent delegations "
             "completed for this session. Treat these results as one "
@@ -1527,7 +1542,7 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
             from gateway.session_automation import producer_identity
             primary_evt = dict(primary_evt, _automation_identities=[
                 producer_identity(self, event) for event in [primary_evt, *(e for e, _ in siblings)]])
-        delivered = await self._deliver_completion_notification(
+        delivered = await self._deliver_completion_notification_scoped(
             consolidated, primary_evt, sibling_claims=siblings,
         )
         if delivered is None:
@@ -1760,7 +1775,34 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
         )
         return future is not None
 
-    async def _run_process_watcher(self, watcher: dict) -> None:
+    async def _offer_process_completion(
+        self, watcher: dict, session, progress: ProcessWatcherProgress, notify_mode: str,
+        completion_evt: dict, synth_text: str,
+    ) -> bool:
+        """Offer once within the watcher's budget; return whether that completion is finished."""
+        platform_name = watcher.get("platform", "")
+        # Capture before injection: a queued follow-up itself makes the key busy.
+        turn_busy = await self._launching_turn_active(platform_name, watcher)
+        delivered = await self._enqueue_process_completion_notification(synth_text, completion_evt)
+        if delivered is not False:
+            # While the launching turn is busy, its admitted follow-up still needs a concise receipt.
+            if turn_busy and (notify_mode in {"concise", "all", "result"} or (
+                notify_mode == "error" and session.exit_code not in {0, None}
+            )):
+                session_id = watcher["session_id"]
+                message_text = self._format_process_final_message(session_id, session, "concise")
+                await self._send_watcher_message(
+                    platform_name, watcher.get("chat_id", ""), watcher.get("thread_id", ""), message_text, watcher)
+            return True
+        progress.completion_attempts += 1
+        if progress.completion_attempts < _MAX_COMPLETION_INJECTION_ATTEMPTS:
+            progress.retry_interval = jittered_backoff(
+                progress.completion_attempts, base_delay=max(watcher["check_interval"], 1) * 2,
+                max_delay=_COMPLETION_INJECTION_RETRY_MAX_DELAY, jitter_ratio=0.0)
+        return False
+
+    @retry_process_watcher
+    async def _run_process_watcher(self, watcher: dict, progress: ProcessWatcherProgress) -> None:
         """Poll a background process and push updates until it exits. Mode
         (``display.background_process_notifications``): concise (default one-liner; failures append
         the output tail) / all (running updates + final raw) / result (final raw) / error (final raw
@@ -1780,11 +1822,8 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
         logger.debug("Process watcher started: %s (every %ss, notify=%s, agent_notify=%s)",
                       session_id, interval, notify_mode, agent_notify)
         silent = notify_mode == "off" and not agent_notify
-        last_output_len = 0
-        completion_attempts = 0
-        retry_interval = interval
         while True:
-            await asyncio.sleep(retry_interval)
+            await asyncio.sleep(progress.retry_interval)
             session = process_registry.get(session_id)
             if session is None:
                 break
@@ -1804,8 +1843,7 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
                     break
                 continue
             current_output_len = len(session.output_buffer)
-            has_new_output = current_output_len > last_output_len
-            last_output_len = current_output_len
+            has_new_output = current_output_len > progress.output_length
             if session.exited:
                 # Agent-notify: inject a synthetic message unless the agent already consumed the result via
                 # wait/log (poll() is read-only and deliberately does NOT mark consumed).
@@ -1814,29 +1852,14 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
                     synth_text = format_process_notification(completion_evt)
                     if not synth_text:
                         break
-                    # Captured before injection: afterwards the key is busy either way (the injected
-                    # turn itself installs the guard).
-                    turn_busy = await self._launching_turn_active(platform_name, watcher)
-                    delivered = await self._enqueue_process_completion_notification(synth_text, completion_evt)
-                    if delivered is not False:
-                        # The agent normally reports the result itself, so the chat gets no separate
-                        # receipt. While the launching turn is still running the injection only queues a
-                        # follow-up, and the chat would stay mute for as long as that turn lasts
-                        # (#112033): send the concise receipt now.
-                        if turn_busy and (notify_mode in {"concise", "all", "result"} or (
-                            notify_mode == "error" and session.exit_code not in {0, None}
-                        )):
-                            message_text = self._format_process_final_message(session_id, session, "concise")
-                            await self._send_watcher_message(platform_name, chat_id, thread_id, message_text, watcher)
-                        break
-                    # A refusal may clear (adapter reconnecting, store draining), so retry with backoff
-                    # for a few minutes, then fall through to the plain notice instead of dropping it.
-                    completion_attempts += 1
-                    if completion_attempts < _MAX_COMPLETION_INJECTION_ATTEMPTS:
-                        retry_interval = jittered_backoff(
-                            completion_attempts, base_delay=max(interval, 1) * 2,
-                            max_delay=_COMPLETION_INJECTION_RETRY_MAX_DELAY, jitter_ratio=0.0)
-                        continue
+                    if progress.completion_attempts < _MAX_COMPLETION_INJECTION_ATTEMPTS:
+                        if await self._offer_process_completion(
+                                watcher, session, progress, notify_mode, completion_evt, synth_text):
+                            break
+                        if progress.completion_attempts < _MAX_COMPLETION_INJECTION_ATTEMPTS:
+                            continue
+                    # Once fallback begins, profile retries must not offer another completion.
+                    # Keep rechecking lost ACK and consumption before the fallback can send.
                     if (getattr(self, 'session_authority', None) is not None
                             and self._completion_delivery_identity(completion_evt) is not None):
                         from gateway.session_automation import completion_admission
@@ -1853,7 +1876,7 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
                             break  # The last refusal was a lost ACK: the turn is committed.
                     logger.warning(
                         "Process watcher: completion for %s was refused %d times; falling back to the "
-                        "notify_mode=%s notice", session_id, completion_attempts, notify_mode,
+                        "notify_mode=%s notice", session_id, progress.completion_attempts, notify_mode,
                     )
                 # Text-only notification; skip when already consumed via wait/log (the agent_notify branch
                 # FALLS THROUGH here, hence the re-check).
@@ -1880,4 +1903,5 @@ class GatewayNotificationsMixin(GatewayUpdateNotificationsMixin, GatewayNotifica
                 await self._send_watcher_message(
                     platform_name, chat_id, thread_id, self._format_process_running_message(session), watcher,
                 )
+                progress.output_length = current_output_len
         logger.debug("Process watcher ended%s: %s", " (silent)" if silent else "", session_id)
