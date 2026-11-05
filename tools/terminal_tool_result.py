@@ -213,11 +213,12 @@ def _redact_spill_file(path, total_chars, command, *, env=None,
             ("output_capture_complete", capture_complete), ("truncation_note", note)]
 
 
-def _verification_evidence(command, cwd, session_id, returncode, output) -> Optional[dict]:
+def _verification_evidence(command, cwd, session_id, returncode, output, pipeline_status=None) -> Optional[dict]:
     with _quiet("verification evidence recording"):
         from agent.verification_evidence import record_terminal_result
         evidence = record_terminal_result(command=command, cwd=cwd, session_id=session_id,
-                                          exit_code=returncode, output=output)
+                                          exit_code=returncode, output=output,
+                                          pipeline_status=pipeline_status)
         if evidence:
             return {k: evidence.get(k) for k in ("status", "kind", "scope", "canonical_command")}
     return None
@@ -285,7 +286,7 @@ def finalize_foreground_result(
                             env=env, capture_complete=result.get("output_capture_complete", True)),
         ("verification_evidence", _verification_evidence(
             command, command_cwd, session_id or task_id or effective_task_id or "default",
-            returncode, output)),
+            returncode, output, result.get("pipeline_status"))),
         ("approval", approval_note or None),
         ("exit_code_meaning", exit_note or None),
         ("hint", failure_hint or None),
