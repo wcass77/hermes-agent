@@ -11,5 +11,3 @@ def auxiliary_defaults(timeout, *, reasoning_effort=True, **extra):
         d["reasoning_effort"] = ""
     d.update(extra)
     return d
-
-
