@@ -3,6 +3,8 @@
 Split out of ``tools/browser_tool.py``. Facade-owned state is read through ``_bt`` (``tools.browser_tool``, resolved per call) — no import cycle."""
 
 import functools
+import hashlib
+from pathlib import Path
 import os
 import shutil
 
@@ -65,6 +67,15 @@ def _find_agent_browser(*, validate: bool = True) -> str:
     (``validate=False``) never execute or install anything. Selection is not
     cached: a new PM fact or profile must be visible immediately.
     """
+    override = _origin()._browser_cfg("agent_browser_path", "", str, "browser.agent_browser_path")
+    if override:
+        candidate = Path(override)
+        expected = _origin()._browser_cfg("agent_browser_sha256", "", str, "browser.agent_browser_sha256")
+        if not candidate.is_absolute() or not _agent_browser_candidate_present(str(candidate)):
+            raise FileNotFoundError("Configured browser driver is unavailable")
+        if not expected or _driver_digest(str(candidate), candidate.stat().st_mtime_ns, candidate.stat().st_size) != expected:
+            raise FileNotFoundError("Configured browser driver checksum does not match; refusing fallback")
+        return str(candidate)
     import pm
 
     termux = _is_termux_environment()
@@ -183,3 +194,10 @@ def check_browser_vision_requirements() -> bool:
         return False
     from tools.vision_tools import check_vision_requirements
     return check_vision_requirements()
+
+
+@functools.lru_cache(maxsize=8)
+def _driver_digest(path: str, modified_ns: int, size: int) -> str:
+    """Pin externally managed drivers without changing PM's shared package lock."""
+    with open(path, "rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()

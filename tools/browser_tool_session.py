@@ -464,6 +464,11 @@ def _close_unpublished_session(task_id: str, session_info: dict[str, Any]) -> No
 
 def _discard_timed_out_browser_session(task_id: str, session_info: dict[str, Any], task_socket_dir: str) -> None:
     """Drop a stuck client generation without losing cloud cleanup state."""
+    if session_info.get("exact_target_binding"):
+        with _bt._cleanup_lock:
+            if _bt._active_sessions.get(task_id) is session_info:
+                session_info["target_reconciliation_required"] = True
+        return
     with _bt._cleanup_lock:
         if _bt._active_sessions.get(task_id) is not session_info:
             return
@@ -917,6 +922,24 @@ def _dispatch_browser_command(
         if engine != "auto" and not _bt._is_camofox_mode():
             backend_args += ["--engine", engine]
 
+    from tools import browser_tool_target as _target
+    if _target.enabled(_bt, session_info):
+        from tools.browser_supervisor import SUPERVISOR_REGISTRY
+        backend_args.append("--pin-tab")
+        argv = _agent_browser_argv(browser_cmd)
+        def invoke(subcommand, subargs):
+            spawn, safe_args, payload = _shim_safe_args(argv[0], subcommand, subargs)
+            parts = argv + backend_args + ["--json", spawn] + safe_args
+            return _unwrap_batch_result(_spawn_and_collect(
+                task_id, session_info, parts, subcommand, engine, timeout, payload), subcommand)
+        try:
+            return engine, _target.dispatch(task_id, session_info, command, args, invoke,
+                                           SUPERVISOR_REGISTRY.get(task_id))
+        except Exception:
+            session_info["target_reconciliation_required"] = True
+            return engine, {"success": False, "code": "target_bridge_failed",
+                            "error": "Exact-target bridge failed; inspect the outcome before another action."}
+
     argv = _agent_browser_argv(browser_cmd)
     spawn_command, spawn_args, stdin_payload = _shim_safe_args(argv[0], command, args)
     cmd_parts = argv + backend_args + ["--json", spawn_command] + spawn_args
@@ -955,6 +978,9 @@ def _run_browser_command(
         except Exception as e:
             _bt.logger.warning("Failed to create browser session for task=%s: %s", task_id, e)
             return {"success": False, "error": f"Failed to create browser session: {e!s}"}
+        if session_info.get("target_reconciliation_required") and command not in ("snapshot", "get", "tab", "close"):
+            return {"success": False, "code": "target_reconciliation_required",
+                    "error": "Browser command timed out; reconcile the exact target before reuse."}
         engine, result = run_fenced_pair(session_info, lambda: _dispatch_browser_command(
             task_id, session_info, browser_cmd, command, args, timeout, _engine_override))
         if result.get("code") == "human_has_control":

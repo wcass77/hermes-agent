@@ -849,7 +849,8 @@ def browser_snapshot(
         _supervisor = SUPERVISOR_REGISTRY.get(effective_task_id)
         if _supervisor is not None:
             _sv_snap = _supervisor.snapshot()
-            if _sv_snap.active:
+            command_target = (result.get("data") or {}).get("targetId")
+            if _sv_snap.active and (getattr(_supervisor, "_command_binding_required", False) is not True or _supervisor.matches_command_target(command_target)):
                 response.update(_snapshot._redact_browser_output(_sv_snap.to_dict()))
     except Exception as _sv_exc:
         logger.debug("supervisor snapshot merge failed: %s", _sv_exc)
@@ -1057,7 +1058,9 @@ def _eval_supervisor_fast_path(effective_task_id: str, expression: str) -> Optio
     try:
         from tools.browser_supervisor import SUPERVISOR_REGISTRY  # type: ignore[import-not-found]
         supervisor = SUPERVISOR_REGISTRY.get(effective_task_id)
-        if supervisor is None:
+        if supervisor is None or getattr(supervisor, "_command_binding_required", False) is True:
+            # Pinned non-secret evaluation goes through the command bridge.
+            # Secret evaluation retains the independently guarded WS path.
             return None
         sup_result = supervisor.evaluate_runtime(expression)
         if sup_result.get("ok"):
@@ -1240,10 +1243,13 @@ def _capture_vision_screenshot(effective_task_id: str, annotate: bool, screensho
                 _session.fetch_sandbox_file(str((result.get("data") or {}).get("path") or remote_path), screenshot_path)
                 result.setdefault("data", {})["path"] = str(screenshot_path)
             except Exception as exc:
-                logger.warning("could not fetch the sandbox screenshot %s: %s", remote_path, exc)
+                return result, screenshot_path, _dumps(_err(
+                    "Screenshot artifact transfer failed.", capture_stage="artifact_transfer"))
     if not result.get("success"):
         return result, screenshot_path, _json_with_fallback(_err(
-            f"Failed to take screenshot ({_vision._vision_mode_label()} mode): {result.get('error', 'Unknown error')}"
+            f"Failed to take screenshot ({_vision._vision_mode_label()} mode): {result.get('error', 'Unknown error')}",
+            capture_stage=("target_reconciliation" if result.get("code") == "target_reconciliation_required" else "command"),
+            capture_timeout=(result.get("code") != "target_reconciliation_required" and "timed out" in str(result.get("error", "")).lower())
         ), result)
     if result.get("data", {}).get("path"):
         screenshot_path = Path(result["data"]["path"])
@@ -1252,7 +1258,7 @@ def _capture_vision_screenshot(effective_task_id: str, annotate: bool, screensho
             f"Screenshot file was not created at {screenshot_path} ({_vision._vision_mode_label()} mode). "
             f"This may indicate a socket path issue (macOS /var/folders/), "
             f"a missing Chromium install ('agent-browser install'), "
-            f"or a stale daemon process."
+            f"or a stale daemon process.", capture_stage="artifact_check"
         ))
     return result, screenshot_path, None
 

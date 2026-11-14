@@ -74,7 +74,7 @@ class FrameTrackingMixin:
                 frame_id=frame_id, url=str(frame.get("url") or ""),
                 origin=str(frame.get("securityOrigin") or frame.get("origin") or ""),
                 parent_frame_id=frame.get("parentId") or old.parent_frame_id, is_oopif=old.is_oopif,
-                cdp_session_id=old.cdp_session_id, name=str(frame.get("name") or old.name),
+                cdp_session_id=(old.cdp_session_id if old.is_oopif else session_id), name=str(frame.get("name") or old.name),
             )
 
     def _on_frame_detached(self, params: dict[str, Any], session_id: Optional[str]) -> None:
@@ -134,8 +134,9 @@ class FrameTrackingMixin:
         no parent, preferring oopif=False; BFS from it, capped by
         FRAME_TREE_MAX_ENTRIES and FRAME_TREE_MAX_OOPIF_DEPTH for OOPIF branches."""
         frames = self._frames
-        tops = [f for f in frames.values() if not f.parent_frame_id]
-        top = next((f for f in tops if not f.is_oopif), tops[0] if tops else None)
+        tops = [f for f in frames.values() if not f.parent_frame_id
+                and not f.is_oopif and f.cdp_session_id == self._page_session_id]
+        top = tops[0] if tops else None
         if top is None:
             return {"top": None, "children": [], "truncated": False}
 

@@ -179,7 +179,10 @@ def _ensure_cdp_supervisor(task_id: str) -> None:
     try:
         from tools.browser_supervisor import SUPERVISOR_REGISTRY  # type: ignore[import-not-found]
         policy, timeout_s = _get_dialog_policy_config()
-        SUPERVISOR_REGISTRY.get_or_start(task_id=task_id, cdp_url=cdp_url, dialog_policy=policy, dialog_timeout_s=timeout_s)
+        options = dict(task_id=task_id, cdp_url=cdp_url, dialog_policy=policy, dialog_timeout_s=timeout_s)
+        if _get_cdp_override_raw() and _bt._browser_cfg("exact_target_binding", False, bool, "browser.exact_target_binding"):
+            options["command_binding_required"] = True
+        SUPERVISOR_REGISTRY.get_or_start(**options)
     except Exception as exc:
         _bt.logger.debug("CDP supervisor attach for task=%s failed (non-fatal): %s", task_id, exc)
 

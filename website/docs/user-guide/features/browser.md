@@ -945,3 +945,30 @@ If paid features aren't available on your plan, Hermes automatically falls back 
 - **Session timeout** — cloud sessions expire based on your provider's plan settings
 - **Cost** — cloud sessions consume provider credits; sessions are automatically cleaned up when the conversation ends or after inactivity. Use `/browser connect` for free local browsing.
 - **No file downloads** — cannot download files from the browser
+
+### Exact-target CDP mode with an externally managed driver
+
+For a configured CDP browser, an administrator can select an already installed
+agent-browser 0.34 driver without replacing PM's shared package:
+
+```yaml
+browser:
+  cdp_url: http://127.0.0.1:9222
+  agent_browser_path: /absolute/path/to/agent-browser
+  agent_browser_sha256: <sha256-of-that-executable>
+  exact_target_binding: true
+```
+
+The explicit path must be absolute and executable, and its checksum must match.
+Failure refuses fallback to another binary. This setting does not install or
+update the driver; the administrator owns its provenance and updates.
+
+Exact-target mode requires `--pin-tab` and target IDs in tab-list metadata.
+Commands and supervisor frame data share the verified target. A new command
+session owns a fresh tab in the existing browser/profile. Other tabs cannot steal
+its binding. A closed target fails instead of selecting a neighbor. Explicit tab
+selection and navigation require a fresh snapshot before old element references
+can be used. After a command timeout, only inspection/reconciliation is allowed;
+a fresh successful snapshot of the same target restores normal commands without
+replaying the uncertain action. Secret fills retain the direct supervised
+WebSocket and exact-origin checks and never travel in command arguments.
