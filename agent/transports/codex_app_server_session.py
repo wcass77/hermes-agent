@@ -208,6 +208,10 @@ def _extract_thread_id(result: dict) -> Optional[str]:
 class CodexAppServerSession:
     """One Codex thread per Hermes session, lifetime owned by AIAgent. Not thread-safe: one caller at a time."""
 
+    # Called once a turn is active (``request_steer`` accepted from then on): the owner delivers steers it
+    # held while no turn existed.
+    on_turn_active: Optional[Callable[[], None]] = None
+
     def __init__(
         self, *, cwd: Optional[str] = None, codex_bin: str = "codex",
         codex_home: Optional[str] = None, permission_profile: Optional[str] = None,
@@ -346,9 +350,13 @@ class CodexAppServerSession:
                 "turn/steer",
                 {"threadId": thread_id, "input": steer_input, "expectedTurnId": turn_id}, timeout=10,
             )
-        except (CodexAppServerError, TimeoutError):
+        except CodexAppServerError:
             logger.debug("turn/steer rejected for active Codex turn", exc_info=True)
             return False
+        except TimeoutError:
+            # Sent, answer late: codex may have taken it. Read as delivered, so it is never replayed.
+            logger.warning("turn/steer unanswered after 10s; treating it as delivered (never replayed)")
+            return True
         accepted_turn_id = response.get("turnId") if isinstance(response, dict) else None
         return accepted_turn_id in {None, turn_id}
 
@@ -503,6 +511,11 @@ class CodexAppServerSession:
         result.turn_id = (ts.get("turn") or {}).get("id")
         with self._active_turn_lock:
             self._active_turn_id = result.turn_id
+        if self.on_turn_active is not None:
+            try:
+                self.on_turn_active()  # steers that arrived before the turn existed (the agent's backlog)
+            except Exception:
+                logger.warning("codex app-server: delivering steers held before turn start failed", exc_info=True)
         # Post-tool quiet timer: armed on each tool completion, cleared by any other activity.
         # Observability only — it never interrupts or retires (see run_turn docstring).
         last_tool_completion_at: Optional[float] = None

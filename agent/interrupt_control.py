@@ -137,6 +137,34 @@ def _drain_steer(agent) -> tuple[Optional[str], list]:
     return text, [path for part in parts for path in _steer_part_images(part)]
 
 
+def _codex_turn_active(session) -> bool:
+    lock = getattr(session, "_active_turn_lock", None)
+    if lock is None:
+        return False
+    with lock:
+        return bool(getattr(session, "_active_turn_id", None))
+
+
+def _send_codex_steer(session, text: str, images) -> bool:
+    try:
+        if images:
+            from agent.steer_images import codex_steer_text
+            return bool(session.request_steer(codex_steer_text(text, images), images=images))
+        return bool(session.request_steer(text))
+    except Exception:
+        logger.debug("Codex app-server turn/steer failed", exc_info=True)
+        return False
+
+
+def flush_codex_steer_backlog(agent) -> None:
+    """``CodexAppServerSession.on_turn_active``: the Codex runtime's pre-API drain. Steers held while no
+    Codex turn existed (an adoption-latched steer, one sent while the turn was starting) go into the
+    turn that is now active; a refused one goes back to the buffer with its tickets."""
+    text, images = _drain_steer(agent)
+    if text and not _send_codex_steer(getattr(agent, "_codex_session", None), text, images):
+        requeue_drained_steer(agent, text)
+
+
 def _ic_codex_method(agent, name: str):
     """Codex app-server owns its model/tool loop; return its ``name`` hook or None."""
     if getattr(agent, "api_mode", None) != "codex_app_server":
@@ -351,27 +379,26 @@ class InterruptControlMixin:
         return True
 
     def _steer_codex_app_server(self, cleaned: str, ticket, images: tuple) -> bool:
-        native_steer = _ic_codex_method(self, "request_steer")
-        if native_steer is None:
-            return False
+        """Into the active Codex turn now; with no active turn yet, held like a native-loop steer and
+        delivered once the turn starts (``flush_codex_steer_backlog``). Refused only on a definite
+        ``turn/steer`` rejection, so the surface queues it."""
         with _ic_lock(self, "_pending_redirect_lock"):
             if self._interrupt_requested:
                 return False
-        try:
-            if images:
-                from agent.steer_images import codex_steer_text
-                accepted = bool(native_steer(codex_steer_text(cleaned, images), images=images))
-            else:
-                accepted = bool(native_steer(cleaned))
-        except Exception:
-            logger.debug("Codex app-server turn/steer failed", exc_info=True)
-            return False
-        if accepted:
-            if ticket is not None:
-                with _ic_lock(self, "_pending_steer_lock"):
-                    _steer_fates(self)[ticket] = True  # the active Codex turn took it
+        session = getattr(self, "_codex_session", None)
+        if not _codex_turn_active(session):
+            part = (ticket, cleaned, images) if images else (ticket, cleaned)
+            with _ic_lock(self, "_pending_steer_lock"):
+                _set_steer_parts(self, _steer_parts(self) + [part])
             self._turn_user_intervened = True
-        return accepted
+            return True
+        if not _send_codex_steer(session, cleaned, images):
+            return False
+        if ticket is not None:
+            with _ic_lock(self, "_pending_steer_lock"):
+                _steer_fates(self)[ticket] = True  # the active Codex turn took it
+        self._turn_user_intervened = True
+        return True
 
     def redirect(self, text: str) -> bool:
         """Redirect the active turn without converting it into a new task: during a model request only that

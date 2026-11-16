@@ -83,9 +83,17 @@ def _native_images(runner, restored, session_key, agent):
 
 
 async def _steer_text(runner, event, images):
-    """Caption plus voice transcripts (the busy STT choke point), with the event's origin."""
-    text = await runner._prepare_busy_steer_text(event)
-    return runner._steer_text_with_origin(text or _NO_CAPTION[min(len(images), 2)], event)
+    """Caption plus voice transcripts (the busy STT choke point), with the event's origin; None when a
+    voice note did not transcribe, so the whole message stays queued and its own turn handles the clip
+    instead of the steer silently carrying the images without it."""
+    caption = (event.text or '').strip()
+    audio = runner._pending_event_audio_paths(event)
+    if audio:
+        caption, transcripts = await runner._transcribe_and_echo_pending_voice(
+            event, runner._delivery_adapter_for(event.source), event.source, caption, log_context='Busy-image-steer')
+        if len(transcripts) < len(audio):
+            return None
+    return runner._steer_text_with_origin(caption.strip() or _NO_CAPTION[min(len(images), 2)], event)
 
 
 async def _transfer(authority, receipt, event, session_key):
@@ -118,6 +126,8 @@ async def _transfer(authority, receipt, event, session_key):
     if not images:
         return False
     text = await _steer_text(runner, event, images)
+    if text is None:
+        return False
     with live.event_stream.lock:
         if runner._draining or _receiving_agent(authority, sid, generation) is not agent:
             return False

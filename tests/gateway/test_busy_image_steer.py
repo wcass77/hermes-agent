@@ -44,7 +44,8 @@ class Agent(InterruptControlMixin):
         return {}
 
 
-async def _photo_while_running(monkeypatch, tmp_path, event, *, drain=True, image_mode="native", probe=None):
+async def _photo_while_running(monkeypatch, tmp_path, event, *, drain=True, image_mode="native", probe=None,
+                               stt_ok=True):
     """Run one turn; deliver ``event`` while it is in progress. Returns (what the running turn's drain
     took, later turns' messages, chat sends, the agent)."""
     from gateway.session_authority import initialize_session_authority
@@ -61,6 +62,8 @@ async def _photo_while_running(monkeypatch, tmp_path, event, *, drain=True, imag
     monkeypatch.setattr(GatewayRunner, "_decide_image_input_mode", decide)
 
     async def transcribed(self, event, adapter, source, text, *, log_context, metadata=None):
+        if not stt_ok:
+            return text, []
         return (f"{text}\n\n[voice] heard this").strip(), ["heard this"]
     monkeypatch.setattr(GatewayRunner, "_transcribe_and_echo_pending_voice", transcribed)
 
@@ -221,3 +224,16 @@ async def test_a_photo_in_transfer_keeps_its_retained_bytes_held(monkeypatch, tm
         held.append(Path(path).is_file())
     await _photo_while_running(monkeypatch, tmp_path, _photo(tmp_path), probe=probe)
     assert held == [True]
+
+
+@pytest.mark.asyncio
+async def test_a_voice_note_that_fails_transcription_keeps_the_whole_message_queued(monkeypatch, tmp_path):
+    """Round-1 review: steering the image without the untranscribed clip would settle the admission and
+    lose the voice note. The message queues whole; its own turn handles the clip as it does today."""
+    voice = tmp_path / "note.ogg"
+    voice.write_bytes(b"OggS" + b"\x00" * 32)
+    event = _photo(tmp_path, _image(tmp_path), str(voice), text="", types=["image/png", "audio/ogg"])
+    taken, later, sent, *_ = await _photo_while_running(monkeypatch, tmp_path, event, stt_ok=False)
+    assert taken == [(None, [])]
+    assert len(later) == 1
+    assert any(t("gateway.busy.queued_head") in s for s in sent), sent

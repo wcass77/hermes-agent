@@ -661,6 +661,8 @@ def _ensure_codex_session(agent, messages: list[dict[str, Any]] | None = None) -
         model=_codex_wire_model(agent, model_provider), model_provider=model_provider,
         resume_thread_id=resume_thread_id, history_seed=history_seed,
     )
+    from agent.interrupt_control import flush_codex_steer_backlog
+    agent._codex_session.on_turn_active = functools.partial(flush_codex_steer_backlog, agent)
 
 
 def _persist_projected_messages(agent, turn, messages: list[dict[str, Any]]) -> bool:
