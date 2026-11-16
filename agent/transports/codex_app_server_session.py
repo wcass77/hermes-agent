@@ -329,8 +329,9 @@ class CodexAppServerSession:
         """Idempotent: signal the active turn loop to issue turn/interrupt and unwind."""
         self._interrupt_event.set()
 
-    def request_steer(self, text: str) -> bool:
-        """Append user guidance to the active Codex turn via ``turn/steer``."""
+    def request_steer(self, text: str, *, images: Any = ()) -> bool:
+        """Append user guidance to the active Codex turn via ``turn/steer``; ``images`` (local paths)
+        ride as native ``localImage`` inputs, the same ``UserInput`` mapping ``turn/start`` uses."""
         cleaned = str(text or "").strip()
         if not cleaned:
             return False
@@ -338,10 +339,12 @@ class CodexAppServerSession:
             turn_id, thread_id, client = self._active_turn_id, self._thread_id, self._client
         if not turn_id or not thread_id or client is None:
             return False
+        steer_input, _ = _build_turn_input(
+            [{"type": "text", "text": cleaned}, *({"type": "image", "path": str(path)} for path in images or ())])
         try:
             response = client.request(
                 "turn/steer",
-                {"threadId": thread_id, "input": [{"type": "text", "text": cleaned}], "expectedTurnId": turn_id}, timeout=10,
+                {"threadId": thread_id, "input": steer_input, "expectedTurnId": turn_id}, timeout=10,
             )
         except (CodexAppServerError, TimeoutError):
             logger.debug("turn/steer rejected for active Codex turn", exc_info=True)

@@ -58,6 +58,9 @@ async def admit_message(authority, event):
         return QUEUE_FULL_REPLY
     finally:
         messaging_admission.reset(ingress)
+    if getattr(event, '_busy_image_steer', None) is not None:
+        from gateway.session_busy_images import steer_admitted_images
+        await steer_admitted_images(authority, receipt, event)
     if receipt.status == 'terminal':
         return None
     # Only the delivery waiter is process-local; execution reads the committed snapshot.
