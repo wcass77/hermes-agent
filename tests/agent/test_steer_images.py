@@ -191,27 +191,42 @@ def test_a_non_vision_model_mid_turn_gets_the_existing_text_fallback(tmp_path, m
 
 
 class _CodexSession:
-    def __init__(self, accept=True, active=True):
-        self.calls, self.accept = [], accept
-        self._active_turn_lock, self._active_turn_id = threading.Lock(), "turn-1" if active else None
+    """``request_steer`` as the agent's flusher thread calls it; ``gate`` holds a reply open."""
+
+    def __init__(self, accept=True, gate=None):
+        self.calls, self.accept, self.gate, self.sent = [], accept, gate, threading.Event()
 
     def request_steer(self, text, *, images=()):
         self.calls.append((text, tuple(images)))
+        self.sent.set()
+        if self.gate is not None:
+            self.gate.wait(10)
         return self.accept
 
 
 def _codex_agent(**session):
     agent = _Agent()
     agent.api_mode, agent._codex_session = "codex_app_server", _CodexSession(**session)
+    agent._has_pending_fallback = lambda: False
     return agent
+
+
+def _settled(agent):
+    """Wait for the agent's flusher thread to finish sending (the turn's end joins it the same way)."""
+    flusher = vars(agent).get("_codex_steer_flusher")
+    if flusher is not None:
+        flusher.join(10)
 
 
 @pytest.mark.parametrize("ticket", [None, "adm-1"])
 def test_codex_app_server_steer_goes_through_native_turn_steer(ticket):
     """Codex owns its turn loop: nothing drains the buffer there, so a steer used to be accepted and
-    then never delivered. It now rides ``turn/steer`` at once."""
+    then never delivered. It now rides ``turn/steer`` while the turn is live."""
+    from agent.codex_steer import codex_turn_active
     agent = _codex_agent()
+    codex_turn_active(agent)
     assert agent.steer("use postgres", ticket=ticket) is True
+    _settled(agent)
     assert agent._codex_session.calls == [("use postgres", ())]
     assert agent._pending_steer is None
     if ticket:
@@ -219,101 +234,162 @@ def test_codex_app_server_steer_goes_through_native_turn_steer(ticket):
 
 
 def test_codex_app_server_image_steer_names_each_image_and_sends_it_natively():
+    from agent.codex_steer import codex_turn_active
     agent = _codex_agent()
+    codex_turn_active(agent)
     assert agent.steer("this one", ticket="adm-1", images=["/x/a.png"]) is True
+    _settled(agent)
     (text, images), = agent._codex_session.calls
     assert images == ("/x/a.png",)
     assert text.startswith("this one") and "[Image attached at: /x/a.png]" in text
 
 
-def test_codex_app_server_rejected_steer_is_refused_not_buffered():
-    """A definite ``turn/steer`` rejection: refused, so the surface queues it as its own turn."""
-    agent = _codex_agent(accept=False)
-    assert agent.steer("later", ticket="adm-1", images=["/x/a.png"]) is False
-    assert agent._pending_steer is None
+def test_a_codex_steer_never_waits_on_the_json_rpc():
+    """Round-2 review: the gateway hands a transfer to the agent on its event loop, under the session's
+    stream lock. ``steer`` only buffers; the flusher thread waits on codex."""
+    from agent.codex_steer import codex_turn_active
+    gate = threading.Event()
+    agent = _codex_agent(gate=gate)
+    codex_turn_active(agent)
+    assert agent.steer("photo", ticket="adm-1", images=["/x/a.png"]) is True  # returns while codex is silent
+    assert agent._codex_session.sent.wait(10)
+    gate.set()
+    _settled(agent)
     assert agent.withdraw_steer("adm-1") is False
 
 
-def test_codex_app_server_steer_before_the_turn_starts_reaches_it_once_active():
-    """Round-1 review: a steer latched before adoption (or sent while the Codex turn is still starting)
-    has no native turn to go to yet. It is held like a native-loop steer and delivered when the turn
-    becomes active, not dropped."""
-    from agent.interrupt_control import flush_codex_steer_backlog
-    agent = _codex_agent(active=False)
+@pytest.mark.parametrize("order", ["steer-then-activate", "activate-then-steer"])
+def test_codex_app_server_steer_before_or_after_turn_start_is_delivered_once(order):
+    """Round-1/2 review: a steer latched before adoption, or sent while the turn starts, has no native turn
+    yet. Insertion and activation share one lock, so whichever comes first the steer goes out once."""
+    from agent.codex_steer import codex_turn_active
+    agent = _codex_agent()
+    if order == "activate-then-steer":
+        codex_turn_active(agent)
     assert agent.steer("latched before adoption") is True
     assert agent.steer("photo", ticket="adm-1", images=["/x/a.png"]) is True
-    assert agent._codex_session.calls == []
-    agent._codex_session._active_turn_id = "turn-1"
-    flush_codex_steer_backlog(agent)
-    (text, images), = agent._codex_session.calls
-    assert "latched before adoption" in text and "photo" in text and images == ("/x/a.png",)
+    if order == "steer-then-activate":
+        assert agent._codex_session.calls == []
+        codex_turn_active(agent)
+    _settled(agent)
+    sent = [(text, images) for text, images in agent._codex_session.calls]
+    assert "".join(text for text, _ in sent).count("latched before adoption") == 1
+    assert [img for _, imgs in sent for img in imgs] == ["/x/a.png"]
     assert agent._pending_steer is None and agent.withdraw_steer("adm-1") is False
 
 
-def test_codex_app_server_backlog_codex_refuses_stays_buffered_for_settlement():
-    from agent.interrupt_control import flush_codex_steer_backlog
-    agent = _codex_agent(active=False, accept=False)
-    agent.steer("photo", ticket="adm-1", images=["/x/a.png"])
-    agent._codex_session._active_turn_id = "turn-1"
-    flush_codex_steer_backlog(agent)
+def _turn(agent, monkeypatch, during, result=None):
+    """``AIAgent._run_codex_app_server_turn`` around a stand-in runtime that runs *during* mid-turn."""
+    from agent import codex_runtime, codex_steer
+
+    def run(agent, **kwargs):
+        during()
+        return dict(result or {"final_response": "done", "error": None, "interrupted": False})
+    monkeypatch.setattr(codex_runtime, "run_codex_app_server_turn", run)
+    return codex_steer.run_codex_app_server_turn(agent, user_message="hi")
+
+
+def test_codex_steers_left_when_the_turn_ends_go_back_like_the_native_finalizers(monkeypatch):
+    """Round-2 review: a steer that reached the agent after the native turn ended (during persistence)
+    must not wait in the buffer for an unrelated later turn. Ticketless text becomes ``pending_steer``
+    (the next turn); a ticketed photo stays for its claim's settlement to requeue."""
+    from agent.codex_steer import codex_turn_active
+    agent = _codex_agent(accept=False)  # the native turn already ended: codex refuses turn/steer
+
+    def during():
+        codex_turn_active(agent)
+        agent.steer("typed after the answer")
+        agent.steer("photo", ticket="adm-1", images=["/x/a.png"])
+    result = _turn(agent, monkeypatch, during)
+    assert result["pending_steer"] == "typed after the answer"
     assert agent.withdraw_steer("adm-1") is True, "unread: its admission goes back to its queue place"
+    assert agent._pending_steer is None
 
 
-def test_codex_session_runs_the_backlog_hook_once_the_turn_is_active():
-    from tests.agent.transports.test_codex_app_server_session import FakeClient, make_session
-    client = FakeClient()
-    client.queue_notification("turn/completed", threadId="t", turn={"id": "tu1", "status": "completed", "error": None})
-    session = make_session(client)
-    seen = []
-    session.on_turn_active = lambda: seen.append(session._active_turn_id)
-    session.run_turn("hi", turn_timeout=2.0)
-    assert seen == ["turn-fake-001"]
+def test_a_codex_turn_that_may_fall_back_keeps_its_steers_for_the_generic_loop(monkeypatch):
+    from agent.codex_steer import codex_turn_active
+    agent = _codex_agent(accept=False)
+    agent._has_pending_fallback = lambda: True
+
+    def during():
+        codex_turn_active(agent)
+        agent.steer("typed mid-turn")
+    result = _turn(agent, monkeypatch, during, {"final_response": "", "error": "429 rate limited", "interrupted": False})
+    assert "pending_steer" not in result
+    assert agent._drain_pending_steer() == "typed mid-turn", "the fallback loop's drains deliver it"
 
 
 def test_codex_turn_steer_answered_late_is_delivered_not_replayed():
     """Round-1 review: the request was sent and codex may have taken it; a refusal here would requeue the
     photo and run it twice. A late answer reads as delivered."""
+    _late_steer_reads(TimeoutError("codex app-server method 'turn/steer' timed out after 10s"), True)
+
+
+@pytest.mark.parametrize("sent", [True, False])
+def test_codex_turn_steer_transport_loss_is_a_refusal_only_before_the_write(sent):
+    """Round-2 review: the transport dying after the request was written is as uncertain as a timeout
+    (never replayed); a request that never reached the transport is a refusal (requeued)."""
+    from agent.transports.codex_app_server import CodexAppServerTransportError
+    exc = CodexAppServerTransportError(code=-32000, message="codex app-server transport lost")
+    exc.request_sent = sent
+    _late_steer_reads(exc, sent)
+
+
+def _late_steer_reads(exc, expected):
     from tests.agent.transports.test_codex_app_server_session import FakeClient, make_session
     client = FakeClient()
 
-    def late(method, params):
+    def fail(method, params):
         if method == "turn/steer":
-            raise TimeoutError("codex app-server method 'turn/steer' timed out after 10s")
+            raise exc
         return {"thread": {"id": "thread-fake-001"}} if method == "thread/start" else {}
     session = make_session(client)
     session.ensure_started()
-    client._request_handler = late
+    client._request_handler = fail
     with session._active_turn_lock:
         session._active_turn_id = "turn-live-1"
-    assert session.request_steer("see this", images=["/x/a.png"]) is True
+    assert session.request_steer("see this", images=["/x/a.png"]) is expected
 
 
-def test_codex_turn_steer_input_maps_images_to_local_image_inputs():
-    """``TurnSteerParams.input`` is ``UserInput[]`` (codex 0.169 schema): text plus ``localImage``."""
-    from tests.agent.transports.test_codex_app_server_session import FakeClient, make_session
-    client = FakeClient()
-    session = make_session(client)
-    session.ensure_started()
-    with session._active_turn_lock:
-        session._active_turn_id = "turn-live-1"
-    assert session.request_steer("see this", images=["/x/a.png", "/x/b.jpg"]) is True
-    method, params = client.requests[-1]
-    assert method == "turn/steer"
-    assert params["input"] == [{"type": "text", "text": "see this"},
-                               {"type": "localImage", "path": "/x/a.png"},
-                               {"type": "localImage", "path": "/x/b.jpg"}]
-    assert params["expectedTurnId"] == "turn-live-1"
+def test_the_client_marks_a_transport_loss_after_the_write_as_sent():
+    """``CodexAppServerClient.request`` raises the same error type before and after the write; only the
+    post-write one carries ``request_sent``."""
+    from agent.transports.codex_app_server import CodexAppServerClient, CodexAppServerTransportError
+    client = object.__new__(CodexAppServerClient)
+    client._next_id, client._pending, client._pending_lock = 1, {}, threading.Lock()
+
+    def write(obj):
+        client._pending[obj["id"]].put_nowait({"error": {"code": -32000, "message": "lost"}, "transportLost": True})
+    client._send = write
+    with pytest.raises(CodexAppServerTransportError) as lost:
+        client.request("turn/steer", {}, timeout=1)
+    assert lost.value.request_sent is True
+    client._send = lambda obj: (_ for _ in ()).throw(CodexAppServerTransportError(code=-32000, message="closed"))
+    with pytest.raises(CodexAppServerTransportError) as unsent:
+        client.request("turn/steer", {}, timeout=1)
+    assert unsent.value.request_sent is False
 
 
-def test_codex_runtime_delivers_a_pre_start_steer_right_after_turn_start(monkeypatch):
-    """The runtime wiring: ``_ensure_codex_session`` installs the backlog hook, so a steer the agent took
-    before the native turn existed goes out as ``turn/steer`` on the turn ``turn/start`` just opened."""
+def test_codex_runtime_delivers_a_pre_start_steer_on_the_turn_turn_start_opened(monkeypatch):
+    """The runtime wiring: ``_ensure_codex_session`` installs the activation hook, so a steer the agent
+    took before the native turn existed goes out as ``turn/steer`` on the turn ``turn/start`` opened."""
     from agent import codex_runtime
     from agent.transports import codex_app_server_session as sess_mod
     from tests.agent.transports.test_codex_app_server_session import FakeClient
 
     client = FakeClient()
-    client.queue_notification("turn/completed", threadId="t", turn={"id": "tu1", "status": "completed", "error": None})
+
+    def answer(method, params):
+        if method == "thread/start":
+            return {"thread": {"id": "thread-fake-001"}}
+        if method == "turn/start":
+            return {"turn": {"id": "turn-fake-001"}}
+        if method == "turn/steer":  # the turn completes only once the steer reached it
+            client.queue_notification("turn/completed", threadId="t",
+                                      turn={"id": "tu1", "status": "completed", "error": None})
+            return {"turnId": params.get("expectedTurnId")}
+        return {}
+    client._request_handler = answer
     monkeypatch.setattr(sess_mod, "CodexAppServerClient", lambda **kw: client)
     agent = _Agent()
     agent.api_mode, agent._codex_session, agent.session_cwd = "codex_app_server", None, "/tmp"
@@ -321,8 +397,8 @@ def test_codex_runtime_delivers_a_pre_start_steer_right_after_turn_start(monkeyp
     agent._cached_system_prompt = "SOUL"
     assert agent.steer("use postgres") is True  # e.g. latched before adoption: no session, no turn yet
     codex_runtime._ensure_codex_session(agent, [{"role": "user", "content": "migrate the db"}])
-    agent._codex_session.run_turn("migrate the db", turn_timeout=2.0)
-    methods = [method for method, _ in client.requests]
-    assert methods.index("turn/steer") == methods.index("turn/start") + 1
-    assert client.requests[methods.index("turn/steer")][1]["input"] == [{"type": "text", "text": "use postgres"}]
+    agent._codex_session.run_turn("migrate the db", turn_timeout=5.0)
+    steers = [params for method, params in client.requests if method == "turn/steer"]
+    assert [p["input"] for p in steers] == [[{"type": "text", "text": "use postgres"}]]
+    assert steers[0]["expectedTurnId"] == "turn-fake-001"
     assert agent._pending_steer is None

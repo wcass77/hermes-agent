@@ -350,6 +350,13 @@ class CodexAppServerSession:
                 "turn/steer",
                 {"threadId": thread_id, "input": steer_input, "expectedTurnId": turn_id}, timeout=10,
             )
+        except CodexAppServerTransportError as exc:
+            if not exc.request_sent:
+                logger.debug("turn/steer not sent: Codex transport unavailable", exc_info=True)
+                return False
+            # Written, then the transport died before the answer: codex may have taken it.
+            logger.warning("turn/steer answer lost with the transport; treating it as delivered (never replayed)")
+            return True
         except CodexAppServerError:
             logger.debug("turn/steer rejected for active Codex turn", exc_info=True)
             return False
@@ -512,10 +519,7 @@ class CodexAppServerSession:
         with self._active_turn_lock:
             self._active_turn_id = result.turn_id
         if self.on_turn_active is not None:
-            try:
-                self.on_turn_active()  # steers that arrived before the turn existed (the agent's backlog)
-            except Exception:
-                logger.warning("codex app-server: delivering steers held before turn start failed", exc_info=True)
+            self.on_turn_active()  # the owner starts sending the steers it holds (never blocks this thread)
         # Post-tool quiet timer: armed on each tool completion, cleared by any other activity.
         # Observability only — it never interrupts or retires (see run_turn docstring).
         last_tool_completion_at: Optional[float] = None

@@ -31,6 +31,7 @@ class CodexAppServerError(RuntimeError):
     code: int
     message: str
     data: Optional[Any] = None
+    request_sent: bool = False  # True once the request reached the transport (see ``request``)
 
     def __str__(self) -> str:  # pragma: no cover - trivial
         return f"codex app-server error {self.code}: {self.message}"
@@ -246,7 +247,9 @@ class CodexAppServerClient:
         if "error" in msg:
             err = msg["error"]
             cls = CodexAppServerTransportError if msg.get("transportLost") else CodexAppServerError
-            raise cls(code=err.get("code", -1), message=err.get("message", ""), data=err.get("data"))
+            exc = cls(code=err.get("code", -1), message=err.get("message", ""), data=err.get("data"))
+            exc.request_sent = True  # written to codex before the answer (or the transport) was lost
+            raise exc
         return msg.get("result", {})
 
     def notify(self, method: str, params: Optional[dict] = None) -> None:
