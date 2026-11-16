@@ -213,7 +213,7 @@ def _codex_agent(**session):
 
 def _settled(agent):
     """Wait for the agent's flusher thread to finish sending (the turn's end joins it the same way)."""
-    flusher = vars(agent).get("_codex_steer_flusher")
+    flusher = vars(agent).get("_codex_steer_sender")
     if flusher is not None:
         flusher.join(10)
 
@@ -278,15 +278,20 @@ def test_codex_app_server_steer_before_or_after_turn_start_is_delivered_once(ord
     assert agent._pending_steer is None and agent.withdraw_steer("adm-1") is False
 
 
-def _turn(agent, monkeypatch, during, result=None):
-    """``AIAgent._run_codex_app_server_turn`` around a stand-in runtime that runs *during* mid-turn."""
+def _turn(agent, monkeypatch, during, result=None, after_codex=None):
+    """``AIAgent.run_conversation`` for one Codex turn: the forwarded Codex run (a stand-in runtime that
+    runs *during* mid-turn), then *after_codex* (what the caller does next, e.g. a fallback's generic
+    loop), then the turn-level settlement."""
     from agent import codex_runtime, codex_steer
 
     def run(agent, **kwargs):
         during()
         return dict(result or {"final_response": "done", "error": None, "interrupted": False})
     monkeypatch.setattr(codex_runtime, "run_codex_app_server_turn", run)
-    return codex_steer.run_codex_app_server_turn(agent, user_message="hi")
+    turn_result = codex_steer.run_codex_app_server_turn(agent, user_message="hi")
+    if after_codex is not None:
+        turn_result = after_codex(turn_result)
+    return codex_steer.settle_codex_turn(agent, turn_result)
 
 
 def test_codex_steers_left_when_the_turn_ends_go_back_like_the_native_finalizers(monkeypatch):
@@ -306,7 +311,9 @@ def test_codex_steers_left_when_the_turn_ends_go_back_like_the_native_finalizers
     assert agent._pending_steer is None
 
 
-def test_a_codex_turn_that_may_fall_back_keeps_its_steers_for_the_generic_loop(monkeypatch):
+def test_a_failed_codex_turn_that_does_not_fall_back_still_hands_its_steers_back(monkeypatch):
+    """Round-3 review: a configured fallback that declines (a non rate-limit error) must not leave the
+    steer buffered for a later turn. Settlement runs after the real fallback decision."""
     from agent.codex_steer import codex_turn_active
     agent = _codex_agent(accept=False)
     agent._has_pending_fallback = lambda: True
@@ -314,9 +321,98 @@ def test_a_codex_turn_that_may_fall_back_keeps_its_steers_for_the_generic_loop(m
     def during():
         codex_turn_active(agent)
         agent.steer("typed mid-turn")
-    result = _turn(agent, monkeypatch, during, {"final_response": "", "error": "429 rate limited", "interrupted": False})
+    result = _turn(agent, monkeypatch, during, {"final_response": "", "error": "invalid model", "interrupted": False})
+    assert result["pending_steer"] == "typed mid-turn"
+    assert agent._pending_steer is None
+
+
+def test_a_codex_turn_that_falls_back_lets_the_generic_loop_take_its_steers(monkeypatch):
+    from agent.codex_steer import codex_turn_active
+    agent = _codex_agent(accept=False)
+    taken = []
+
+    def during():
+        codex_turn_active(agent)
+        agent.steer("typed mid-turn")
+
+    def generic_loop(_codex_result):  # the fallback reran the turn; its drain took the steer
+        agent.api_mode = "chat_completions"
+        taken.append(agent._drain_pending_steer())
+        return {"final_response": "from the fallback", "error": None, "interrupted": False}
+    result = _turn(agent, monkeypatch, during, {"final_response": "", "error": "429", "interrupted": False},
+                   after_codex=generic_loop)
+    assert taken == ["typed mid-turn"]
     assert "pending_steer" not in result
-    assert agent._drain_pending_steer() == "typed mid-turn", "the fallback loop's drains deliver it"
+
+
+def test_a_send_still_in_flight_when_the_turn_ends_is_never_replayed_into_a_later_turn(monkeypatch):
+    """Round-3 review: a ``turn/steer`` write that outlives the turn's join is uncertain. Its claim settles
+    it as delivered (never replayed); when the send later fails it must not re-enter a later turn."""
+    from agent import codex_steer
+    monkeypatch.setattr(codex_steer, "_JOIN_TIMEOUT_S", 0.05)
+    gate = threading.Event()
+    agent = _codex_agent(accept=False, gate=gate)
+
+    def during():
+        codex_steer.codex_turn_active(agent)
+        agent.steer("photo", ticket="adm-1", images=["/x/a.png"])
+        assert agent._codex_session.sent.wait(10)
+    _turn(agent, monkeypatch, during)
+    stalled = threading.enumerate()
+    assert agent.withdraw_steer("adm-1") is False, "in flight at the turn's end: settled, not requeued"
+    agent._codex_session.gate = None
+    codex_steer.codex_turn_active(agent)  # the next turn
+    agent.steer("next turn's own steer")
+    _settled(agent)
+    gate.set()  # the stalled write now fails definitely
+    for thread in stalled:
+        if thread.name == "codex-steer-send":
+            thread.join(10)
+    assert "photo" not in (agent._pending_steer or "")
+    assert agent._codex_session.calls[-1] == ("next turn's own steer", ())
+
+
+def test_the_codex_sender_runs_in_the_turns_profile_context():
+    """Round-3 review: a bare thread loses the turn's ContextVars (profile home, terminal backend), so the
+    image hint was built for the wrong environment. The sender runs in the activating turn's context."""
+    import contextvars
+    from agent.codex_steer import codex_turn_active
+    marker = contextvars.ContextVar("steer_test_profile", default="launch profile")
+    seen = []
+    agent = _codex_agent()
+    real = agent._codex_session.request_steer
+
+    def request_steer(text, *, images=()):
+        seen.append(marker.get())
+        return real(text, images=images)
+    agent._codex_session.request_steer = request_steer
+
+    def turn_thread():
+        marker.set("routed profile")
+        codex_turn_active(agent)
+    worker = threading.Thread(target=turn_thread)
+    worker.start()
+    worker.join()
+    agent.steer("hello")  # from another thread (the gateway loop), in its own context
+    _settled(agent)
+    assert seen == ["routed profile"]
+
+
+def test_codex_turn_steer_input_maps_images_to_local_image_inputs():
+    """``TurnSteerParams.input`` is ``UserInput[]`` (codex 0.169 schema): text plus ``localImage``."""
+    from tests.agent.transports.test_codex_app_server_session import FakeClient, make_session
+    client = FakeClient()
+    session = make_session(client)
+    session.ensure_started()
+    with session._active_turn_lock:
+        session._active_turn_id = "turn-live-1"
+    assert session.request_steer("see this", images=["/x/a.png", "/x/b.jpg"]) is True
+    method, params = client.requests[-1]
+    assert method == "turn/steer"
+    assert params["input"] == [{"type": "text", "text": "see this"},
+                               {"type": "localImage", "path": "/x/a.png"},
+                               {"type": "localImage", "path": "/x/b.jpg"}]
+    assert params["expectedTurnId"] == "turn-live-1"
 
 
 def test_codex_turn_steer_answered_late_is_delivered_not_replayed():
