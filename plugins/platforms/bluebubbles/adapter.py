@@ -57,6 +57,11 @@ DEFAULT_MENTION_PATTERNS = [r"(?<![\w@])@?hermes\s+agent\b[,:\-]?", r"(?<![\w@])
 # Tapback associatedMessageType codes: 2000-2005 added, 3000-3005 removed (love, like, dislike, ...).
 _TAPBACK_CODES = {*range(2000, 2006), *range(3000, 3006)}
 _MESSAGE_EVENTS = {"new-message", "message", "updated-message"}  # webhook event types carrying user messages
+# iMessage attaches a URL's rich-link preview (art/favicon/metadata) as ``*.pluginPayloadAttachment``
+# files. The URL itself is in the text, so the preview is dropped (as Photon does): otherwise a bare
+# link counts as a document and a busy-session steer degrades to queue.
+_LINK_PREVIEW_ATTACHMENT_SUFFIX = ".pluginpayloadattachment"
+_URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 
 _PHONE_RE = re.compile(r"\+?\d{7,15}")
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")
@@ -519,13 +524,17 @@ class BlueBubblesAdapter(BasePlatformAdapter):
             payload_str = (form.get("payload") or form.get("data") or form.get("message") or [""])[0]
             return json.loads(payload_str) if payload_str else {}
 
-    async def _collect_attachments(self, record: dict[str, Any]):
+    async def _collect_attachments(self, record: dict[str, Any], text: str = ""):
         """Download inbound attachments; returns (media_urls, media_types, msg_type)."""
         media_urls: list[str] = []
         media_types: list[str] = []
         msg_type = MessageType.TEXT
+        has_url = bool(_URL_RE.search(text or ""))
         for att in record.get("attachments") or []:
             att_guid = att.get("guid", "")
+            if has_url and _is_link_preview_attachment(att):
+                logger.info("[bluebubbles] dropping rich-link preview attachment %s", _redact(att_guid))
+                continue
             cached = await self._download_attachment(att_guid, att) if att_guid else None
             if not cached:
                 continue
@@ -590,7 +599,7 @@ class BlueBubblesAdapter(BasePlatformAdapter):
                 logger.debug("[bluebubbles] ignoring group message (require_mention=true, no mention pattern matched)")
                 return _ok()
             text = self._clean_mention_text(text)
-        media_urls, media_types, msg_type = await self._collect_attachments(record)
+        media_urls, media_types, msg_type = await self._collect_attachments(record, text)
         if not text and media_urls:
             text = "(attachment)"
         if not sender or not (chat_guid or chat_identifier) or not text:
@@ -609,6 +618,12 @@ class BlueBubblesAdapter(BasePlatformAdapter):
         if self.send_read_receipts and session_chat_id:  # fire-and-forget read receipt
             asyncio.create_task(self.mark_read(session_chat_id))
         return _ok()
+
+
+def _is_link_preview_attachment(att: dict[str, Any]) -> bool:
+    """iMessage rich-link preview payload; the name/guid marker is the reliable signal (MIME varies)."""
+    return any(_LINK_PREVIEW_ATTACHMENT_SUFFIX in str(att.get(k) or "").lower()
+               for k in ("transferName", "guid"))
 
 
 # --- Plugin hooks (registered via register(ctx) below) ---
