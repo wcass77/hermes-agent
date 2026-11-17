@@ -585,6 +585,78 @@ class TestBlueBubblesGateBeforeDownload:
         assert len(handled) == handled_count
 
 
+class TestBlueBubblesLinkPreviewAttachments:
+    """A link sent with its iMessage rich-link preview stays plain text, so a busy session can steer it."""
+
+    _PREVIEWS = [
+        {"guid": "att-art", "mimeType": "image/jpeg",
+         "transferName": "2C2B1A1B-3E13-46A0-A274-9D8B38D58C45.pluginPayloadAttachment"},
+        {"guid": "att-meta", "mimeType": "",
+         "transferName": "67D5D543-6C6B-4C96-A296-DC2A9E6A3614.pluginPayloadAttachment"},
+    ]
+
+    async def _dispatch(self, monkeypatch, text, attachments):
+        adapter = _make_adapter(monkeypatch, send_read_receipts=False)
+        handled = []
+
+        async def fake_handle_message(event):
+            handled.append(event)
+
+        download = AsyncMock(return_value="/tmp/cached.bin")
+        monkeypatch.setattr(adapter, "handle_message", fake_handle_message)
+        monkeypatch.setattr(adapter, "_download_attachment", download)
+        response = await adapter._handle_webhook(_FakeBlueBubblesRequest({
+            "type": "new-message",
+            "data": {
+                "guid": "msg-link-1",
+                "text": text,
+                "handle": {"address": "+15555550100"},
+                "isFromMe": False,
+                "chats": [{"guid": "iMessage;-;+15555550100"}],
+                "attachments": attachments,
+            },
+        }))
+        await asyncio.sleep(0)
+        assert response.status == 200
+        assert len(handled) == 1
+        return handled[0], download
+
+    @pytest.mark.asyncio
+    async def test_url_with_preview_payloads_is_plain_text(self, monkeypatch):
+        from gateway.platforms.event import MessageType
+
+        url = "https://www.example.org/pressrelease/robotic-surgery-milestone/"
+        event, download = await self._dispatch(monkeypatch, url, self._PREVIEWS)
+
+        assert download.await_count == 0
+        assert event.text == url
+        # The busy-session steer gate requires exactly this shape (gateway/run_busy.py plain_text).
+        assert event.message_type == MessageType.TEXT
+        assert not event.media_urls and not event.media_types
+
+    @pytest.mark.asyncio
+    async def test_preview_payload_dropped_beside_real_photo(self, monkeypatch):
+        from gateway.platforms.event import MessageType
+
+        photo = {"guid": "att-photo", "mimeType": "image/jpeg", "transferName": "IMG_0001.jpg"}
+        event, download = await self._dispatch(
+            monkeypatch, "see https://example.org and this", [*self._PREVIEWS, photo])
+
+        assert [c.args[0] for c in download.await_args_list] == ["att-photo"]
+        assert event.message_type == MessageType.PHOTO
+        assert event.media_urls == ["/tmp/cached.bin"]
+
+    @pytest.mark.asyncio
+    async def test_plugin_payload_without_url_is_kept(self, monkeypatch):
+        from gateway.platforms.event import MessageType
+
+        event, download = await self._dispatch(monkeypatch, "", self._PREVIEWS[:1])
+
+        assert download.await_count == 1
+        assert event.message_type == MessageType.PHOTO
+        assert event.media_urls == ["/tmp/cached.bin"]
+
+
 class TestBlueBubblesPluginRegistration:
     def test_register_declares_platform_entry_hooks(self):
         """Plugin shape: the former core wiring (_BUILTIN_ADAPTERS row, _send_bluebubbles,
