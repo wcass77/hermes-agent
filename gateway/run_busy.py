@@ -683,7 +683,10 @@ class GatewayBusySessionMixin:
         plain_text = (
             event.message_type == MessageType.TEXT and not event.media_urls and not event.media_types
         )
-        if effective_mode == "steer":
+        from gateway.session_busy_images import defer_image_steer
+        if effective_mode == "steer" and agent_live and defer_image_steer(self, event, running_agent):
+            effective_mode = "queue"  # a photo steers once admitted (gateway/session_busy_images.py)
+        elif effective_mode == "steer":
             steer_text = await self._prepare_busy_steer_text(event)
             # Steerable: plain text, OR every attachment is voice media folded into steer_text.
             # A follow-up qualifies for steering when it is plain text, OR when every attachment is
@@ -844,7 +847,8 @@ class GatewayBusySessionMixin:
                 pass
         status_detail = (t("gateway.busy.ack_detail_wrap", detail=t("gateway.busy.ack_detail_joiner").join(status_parts))
                          if status_parts else "")
-        if is_steer_mode and self._agent_has_active_subagents(running_agent):
+        if is_steer_mode and not getattr(event, "_busy_steer_parent_only", False) and (
+                self._agent_has_active_subagents(running_agent)):
             head = t("gateway.busy.steered_subagents_head")
             tail = t("gateway.busy.steered_subagents_tail")
         elif is_steer_mode:
@@ -961,6 +965,10 @@ class GatewayBusySessionMixin:
         """Interrupt-mode abort (voice transcribed) and the busy ack, after the steer/redirect resolution.
         Shared by the in-process busy handler and the session authority's busy preempt."""
         from gateway.run import _AGENT_PENDING_SENTINEL
+        if getattr(event, "_busy_image_steer", None) is True:
+            # Acknowledged once its transfer resolves, with the outcome it had (session_busy_images).
+            event._busy_image_steer = (session_key, adapter, _busy_state, running_agent, _steer)
+            return
         effective_mode, redirected = _steer.effective_mode, _steer.redirected
         is_queue_mode = effective_mode == "queue"
         is_steer_mode = effective_mode == "steer"

@@ -208,6 +208,10 @@ def _extract_thread_id(result: dict) -> Optional[str]:
 class CodexAppServerSession:
     """One Codex thread per Hermes session, lifetime owned by AIAgent. Not thread-safe: one caller at a time."""
 
+    # Called once a turn is active (``request_steer`` accepted from then on): the owner delivers steers it
+    # held while no turn existed.
+    on_turn_active: Optional[Callable[[], None]] = None
+
     def __init__(
         self, *, cwd: Optional[str] = None, codex_bin: str = "codex",
         codex_home: Optional[str] = None, permission_profile: Optional[str] = None,
@@ -329,8 +333,9 @@ class CodexAppServerSession:
         """Idempotent: signal the active turn loop to issue turn/interrupt and unwind."""
         self._interrupt_event.set()
 
-    def request_steer(self, text: str) -> bool:
-        """Append user guidance to the active Codex turn via ``turn/steer``."""
+    def request_steer(self, text: str, *, images: Any = ()) -> bool:
+        """Append user guidance to the active Codex turn via ``turn/steer``; ``images`` (local paths)
+        ride as native ``localImage`` inputs, the same ``UserInput`` mapping ``turn/start`` uses."""
         cleaned = str(text or "").strip()
         if not cleaned:
             return False
@@ -338,14 +343,27 @@ class CodexAppServerSession:
             turn_id, thread_id, client = self._active_turn_id, self._thread_id, self._client
         if not turn_id or not thread_id or client is None:
             return False
+        steer_input, _ = _build_turn_input(
+            [{"type": "text", "text": cleaned}, *({"type": "image", "path": str(path)} for path in images or ())])
         try:
             response = client.request(
                 "turn/steer",
-                {"threadId": thread_id, "input": [{"type": "text", "text": cleaned}], "expectedTurnId": turn_id}, timeout=10,
+                {"threadId": thread_id, "input": steer_input, "expectedTurnId": turn_id}, timeout=10,
             )
-        except (CodexAppServerError, TimeoutError):
+        except CodexAppServerTransportError as exc:
+            if not exc.request_sent:
+                logger.debug("turn/steer not sent: Codex transport unavailable", exc_info=True)
+                return False
+            # Written, then the transport died before the answer: codex may have taken it.
+            logger.warning("turn/steer answer lost with the transport; treating it as delivered (never replayed)")
+            return True
+        except CodexAppServerError:
             logger.debug("turn/steer rejected for active Codex turn", exc_info=True)
             return False
+        except TimeoutError:
+            # Sent, answer late: codex may have taken it. Read as delivered, so it is never replayed.
+            logger.warning("turn/steer unanswered after 10s; treating it as delivered (never replayed)")
+            return True
         accepted_turn_id = response.get("turnId") if isinstance(response, dict) else None
         return accepted_turn_id in {None, turn_id}
 
@@ -500,6 +518,8 @@ class CodexAppServerSession:
         result.turn_id = (ts.get("turn") or {}).get("id")
         with self._active_turn_lock:
             self._active_turn_id = result.turn_id
+        if self.on_turn_active is not None:
+            self.on_turn_active()  # the owner starts sending the steers it holds (never blocks this thread)
         # Post-tool quiet timer: armed on each tool completion, cleared by any other activity.
         # Observability only — it never interrupts or retires (see run_turn docstring).
         last_tool_completion_at: Optional[float] = None
