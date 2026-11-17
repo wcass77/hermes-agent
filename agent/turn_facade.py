@@ -161,6 +161,8 @@ class TurnFacadeMixin:
                     # the interrupt clear itself waits for the thread join in the outer finally.
                     if lease is not None:
                         lease.stop_refresher()
+            from agent.codex_steer import settle_codex_turn
+            result = settle_codex_turn(self, result)
             terminal = result if isinstance(result, dict) else {}
             relay_outcome = (
                 "cancelled" if terminal.get("interrupted") is True
@@ -221,4 +223,4 @@ class TurnFacadeMixin:
         """Final response string of one turn; ``stream_callback`` receives each text delta."""
         return self.run_conversation(message, stream_callback=stream_callback)["final_response"]
 
-    _run_codex_app_server_turn = _forward("agent.codex_runtime", "run_codex_app_server_turn")
+    _run_codex_app_server_turn = _forward("agent.codex_steer", "run_codex_app_server_turn")

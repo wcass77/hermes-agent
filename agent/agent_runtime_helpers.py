@@ -3666,28 +3666,20 @@ def _requeue_pending_steer(agent, steer_text: str) -> None:
 
 
 def apply_pending_steer_to_tool_results(agent, messages: list, num_tool_msgs: int) -> None:
-    """Persist any pending /steer text as a standalone user message.
+    """Persist any pending /steer text (and its images) as a standalone user message, at the end of a
+    tool-call batch, before the next API call. It is a NEW ``role:"user"`` row after the last tool result:
 
-    Called at the end of a tool-call batch, before the next API call.
-
-    The steer is emitted as a NEW ``role:"user"`` message appended after the
-    last tool result (marker text included), so:
-
-    - the model still sees the self-describing out-of-band marker (same text,
-      same provenance semantics);
-    - message-role alternation stays legal — ``assistant(tool_calls) → tool →
-      user`` is the documented "user jumped in mid-run" pattern that
-      ``repair_message_sequence`` deliberately keeps;
-    - the appended dict carries no ``_DB_PERSISTED_MARKER`` yet, so the next
-      ``_flush_messages_to_session_db`` writes it to the session store — the
-      steer text finally becomes part of the durable transcript instead of
-      being smeared onto an already-persisted tool row that append-only
-      persistence never rewrites (replayed histories then diverge from the
-      live request bytes and break the provider prompt cache).
+    - the model still sees the self-describing out-of-band marker (same provenance semantics);
+    - role alternation stays legal: ``assistant(tool_calls) → tool → user`` is the documented "user
+      jumped in mid-run" pattern that ``repair_message_sequence`` deliberately keeps;
+    - the row carries no ``_DB_PERSISTED_MARKER`` yet, so the next ``_flush_messages_to_session_db``
+      writes it to the durable transcript instead of smearing it onto an already-persisted tool row
+      that append-only persistence never rewrites (replay would then diverge from the live request
+      bytes and break the provider prompt cache).
     """
     if num_tool_msgs <= 0 or not messages:
         return
-    steer_text = agent._drain_pending_steer()
+    steer_text, steer_images = agent._drain_pending_steer_content()
     if not steer_text:
         return
     # Skip non-tool messages in the tail in case something else is appended at the boundary.
@@ -3699,7 +3691,11 @@ def apply_pending_steer_to_tool_results(agent, messages: list, num_tool_msgs: in
         # user message (which persists like any other user turn).
         _requeue_pending_steer(agent, steer_text)
         return
-    messages.append(steer_user_row(steer_text))
+    if steer_images:
+        from agent.steer_images import steer_row
+        messages.append(steer_row(steer_text, steer_images))
+    else:
+        messages.append(steer_user_row(steer_text))
     _ra().logger.info(
         "Delivered /steer to agent after tool batch (%d chars) as new user message: %s", len(steer_text),
         steer_text[:120] + ("..." if len(steer_text) > 120 else ""),

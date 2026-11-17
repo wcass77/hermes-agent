@@ -491,6 +491,8 @@ The first time you message a busy agent on any platform, Hermes appends a one-li
 
 If you find the busy acknowledgment noisy, set `display.busy_ack_enabled: false`. Input handling is unchanged; only the confirmation message is hidden.
 
+In `steer` mode a photo (one or several images, with or without a caption, optionally with a voice note) is steered into the running turn too: it is saved like a queued message first, then handed to the agent, which sees the caption and the actual images after its next tool call. This needs a model that takes images natively (the same decision a normal photo turn makes); otherwise, and for any message carrying a document, video or other file, the message is queued as before. If the turn ends before the agent reads the photo, it runs as the next turn with its images. The images reach the main agent only, not its subagents, and the Codex app-server runtime receives them through its native `turn/steer`.
+
 ## Clarify Questions (Multi-Select)
 
 When the agent uses the `clarify` tool to ask you a question, the gateway renders the choices as a numbered prompt (or native buttons on platforms that support them). Clarify supports **multi-select** questions too — the agent can let you pick several options at once:
