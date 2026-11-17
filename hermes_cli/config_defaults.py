@@ -4,7 +4,7 @@ Pure-data leaf module — must not import from hermes_cli.config. Comments are t
 docs of config.yaml.
 """
 
-from hermes_cli.config_default_helpers import auxiliary_defaults
+from hermes_cli.config_default_helpers import auxiliary_defaults, security_defaults
 
 #: Image every container terminal backend (docker/modal/daytona, the singularity plugin) uses unless the
 #: user pins one. LEGACY_SANDBOX_IMAGES are the plain defaults that preceded the desktop stack
@@ -1755,38 +1755,7 @@ DEFAULT_CONFIG = {
         # for one login without changing this key.
         "codex_login_flow": "device_code",
     },
-    "security": {  # Security: URL/private-network guards, redaction and approval presentation.
-        "allow_private_urls": False,  # private IPs for web/vision/media + cloud/CDP browsers; not local/sidecar Chromium
-        # CIDR blocks a local TUN proxy answers DNS with (Mihomo/Clash fake-ip, Surge enhanced).
-        # Answers inside these blocks are the proxy's sentinels, not internal hosts, so the guard
-        # dials them instead of rejecting them as private. Empty = normal private-address verdict.
-        "fake_ip_ranges": [],
-        "redact_secrets": True,
-        # Ordinary terminal/file results only; credential guards and diagnostics remain separate.
-        "ordinary_output": "redact",  # "fidelity" preserves ordinary content; restart to apply.
-        # Persisted acknowledgement for unattended model overrides whose tier lets the vendor train
-        # on prompts. The startup guard still warns every run; cost guards are unaffected.
-        "allow_data_training_tiers_noninteractive": False,
-        # Human-approval presentation transport. "builtin" = CLI/TUI/gateway/ACP surfaces; a plugin
-        # transport is used only when named explicitly. Transport timeout/error/invalid response
-        # DENIES unless transport_fallback is "builtin". Presentation only: plugins cannot detect,
-        # suppress, or auto-approve commands outside a correlated human response.
-        "approval": {"transport": "builtin", "transport_fallback": "deny"},
-        # Writes to agent-instruction files (AGENTS.md/CLAUDE.md/SOUL.md/.cursorrules, project-local
-        # .hermes config) always need human approval, even under yolo. Extra patterns are fnmatch
-        # globs on the basename (e.g. "*.mdc").
-        "protected_instruction_files": True,
-        "protected_instruction_extra_patterns": [],
-        "website_blocklist": {"enabled": False, "domains": [], "shared_files": []},
-        # IDs of supply-chain advisories the user has read and acted on; acked ones stop the startup
-        # banner. Add via `hermes doctor --ack <id>`; remove by editing the list. Catalog:
-        # hermes_cli/security_advisories.py.
-        "acked_advisories": [],
-        # Lazy-install opt-in backend packages from PyPI when a backend that needs them is first
-        # enabled (e.g. `elevenlabs`). False = require explicit pip install for everything beyond
-        # the base set (restricted/audited/air-gapped environments).
-        "allow_lazy_installs": True,
-    },
+    "security": security_defaults(),
 
     "cron": {
         "catch_up_missed": True,  # False skips recurring misses beyond the local grace window.
