@@ -295,6 +295,12 @@ def _screenshot_dir() -> Optional[str]:
         return None
 
 
+def _exact_target_enabled(env: dict) -> bool:
+    """Fork: exact-tab binding applies to an explicitly configured shared CDP browser only."""
+    from tools import browser_exec_target
+    return browser_exec_target.enabled() and _has_cdp_env(env)
+
+
 def _arm_exact_target(env: dict, task_id: Optional[str], route_key: str, exact_target: bool):
     """Attach the vault supervisor and, with the fork's exact-tab binding, arm this call's target
     report. Upstream's two-argument attach is kept when binding is off. Returns (supervisor, report)."""
@@ -905,8 +911,7 @@ def browser_exec(code: str, session: str = "", timeout_s: int = _DEFAULT_TIMEOUT
     timeout = _clamp_timeout(timeout_s)
     started = time.time()
     # Shared CDP browser with exact_target_binding: bind the supervisor to the exact tab this call drove.
-    from tools import browser_exec_target
-    exact_target = browser_exec_target.enabled() and _has_cdp_env(env)
+    exact_target = _exact_target_enabled(env)
     target_report: Optional[str] = None
     supervisor_box: list = [None]
 
