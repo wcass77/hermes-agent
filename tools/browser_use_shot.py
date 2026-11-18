@@ -25,7 +25,17 @@ _HARNESS_MODULE = "browser_harness.helpers"
 _log = logging.getLogger("hermes_browser_use_shot")
 
 
+SCREENSHOT_DIR_ENV = "HERMES_BU_SCREENSHOT_DIR"
+
+
 def _default_shot_path() -> str:
+    # Fork: a retained, unique native capture in the profile's screenshot cache (as the removed
+    # browser_vision did), so tools that verify native pixels can accept it and later captures never
+    # overwrite earlier evidence.
+    retained = os.environ.get(SCREENSHOT_DIR_ENV)
+    if retained:
+        import uuid
+        return os.path.join(retained, f"browser_screenshot_{uuid.uuid4().hex}.png")
     try:
         from browser_harness import _ipc  # the harness's own per-user temp dir
         return str(_ipc._TMP / "shot.png")

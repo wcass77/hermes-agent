@@ -291,6 +291,19 @@ def _workspace_dir(task_id: Optional[str]) -> Optional[str]:
         return None
 
 
+def _screenshot_dir() -> Optional[str]:
+    """The profile's retained native screenshot dir (``cache/screenshots``, or the legacy
+    ``browser_screenshots`` when that is what the profile has), as the removed browser_vision used."""
+    try:
+        from hermes_constants import get_hermes_dir
+        path = get_hermes_dir("cache/screenshots", "browser_screenshots")
+        path.mkdir(parents=True, exist_ok=True)
+        return str(path)
+    except Exception as e:
+        logger.debug("browser_exec screenshot dir unavailable: %s", e)
+        return None
+
+
 def _find_screenshot(stdout: str, since: float) -> Optional[str]:
     """Last screenshot path printed during this exec that exists and was written after
     the exec started, or None."""
@@ -833,6 +846,10 @@ def browser_exec(code: str, session: str = "", timeout_s: int = _DEFAULT_TIMEOUT
     workspace = _workspace_dir(task_id)
     if workspace:
         env["BH_AGENT_WORKSPACE"] = workspace
+    shots = _screenshot_dir()
+    if shots:
+        from tools.browser_use_shot import SCREENSHOT_DIR_ENV
+        env[SCREENSHOT_DIR_ENV] = shots
 
     # BU_AUTOSPAWN makes the CLI start a Browser Use cloud browser when no local
     # Chrome/CDP endpoint is reachable (their API key authenticates it)

@@ -274,3 +274,23 @@ def test_vault_supervisor_refuses_unbound_supervisor_on_shared_browser(monkeypat
     assert browser_vault_tool._ensure_supervisor("t") is None
     monkeypatch.setattr(SUPERVISOR_REGISTRY, "get", lambda task_id: None)
     assert browser_vault_tool._ensure_supervisor("t") is None  # never starts an unbound one
+
+
+# ---------------------------------------------------------------- retained native screenshots (fork)
+
+def test_default_screenshot_is_unique_and_retained_in_profile_cache(monkeypatch, tmp_path):
+    monkeypatch.setenv(shot.SCREENSHOT_DIR_ENV, str(tmp_path))
+    first, second = shot._default_shot_path(), shot._default_shot_path()
+    assert first != second
+    assert os.path.dirname(first) == str(tmp_path) and os.path.basename(first).startswith("browser_screenshot_")
+
+
+def test_browser_exec_screenshot_dir_matches_removed_browser_vision(monkeypatch, tmp_path):
+    from tools import browser_use_cli
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    assert browser_use_cli._screenshot_dir() == str(tmp_path / "cache" / "screenshots")
+    legacy = tmp_path / "browser_screenshots"
+    legacy.mkdir()
+    import shutil as _shutil
+    _shutil.rmtree(tmp_path / "cache" / "screenshots")
+    assert browser_use_cli._screenshot_dir() in (str(legacy), str(tmp_path / "cache" / "screenshots"))
