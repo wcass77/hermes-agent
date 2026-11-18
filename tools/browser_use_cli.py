@@ -337,6 +337,14 @@ def _dispatch_exact_target(task_id: Optional[str], route_key: str, run, armed, e
     return dispatched, fields
 
 
+def _export_screenshot_dir(env: dict) -> None:
+    """Fork: point the harness's default capture at the profile's retained screenshot cache."""
+    shots = _screenshot_dir()
+    if shots:
+        from tools.browser_use_shot import SCREENSHOT_DIR_ENV
+        env[SCREENSHOT_DIR_ENV] = shots
+
+
 def _find_screenshot(stdout: str, since: float) -> Optional[str]:
     """Last screenshot path printed during this exec that exists and was written after
     the exec started, or None."""
@@ -898,10 +906,7 @@ def browser_exec(code: str, session: str = "", timeout_s: int = _DEFAULT_TIMEOUT
     workspace = _workspace_dir(task_id)
     if workspace:
         env["BH_AGENT_WORKSPACE"] = workspace
-    shots = _screenshot_dir()
-    if shots:
-        from tools.browser_use_shot import SCREENSHOT_DIR_ENV
-        env[SCREENSHOT_DIR_ENV] = shots
+    _export_screenshot_dir(env)
 
     # BU_AUTOSPAWN makes the CLI start a Browser Use cloud browser when no local
     # Chrome/CDP endpoint is reachable (their API key authenticates it)
