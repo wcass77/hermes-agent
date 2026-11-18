@@ -132,6 +132,9 @@ class CDPSupervisor(DialogSupervisionMixin, FrameTrackingMixin):
         self._binding_generation = 0
         self._command_admission = lambda: False
         self._secret_admission = lambda: False
+        # The tab the task's browser_exec daemon last drove (``set_driven_target``); ``focus_page`` prefers it.
+        # Fork: with exact binding the bound command target is authoritative instead.
+        self._driven_target_id: Optional[str] = None
         # Dialog auto-dismiss watchdog handles (per dialog id) + id generator.
         self._dialog_watchdogs: dict[str, asyncio.TimerHandle] = {}
         self._dialog_seq = 0
@@ -274,12 +277,19 @@ class CDPSupervisor(DialogSupervisionMixin, FrameTrackingMixin):
             value = result_obj.get("description") or result_obj.get("unserializableValue")
         return {"ok": True, "result": value, "result_type": result_type}
 
+    def set_driven_target(self, target_id: Optional[str]) -> None:
+        """Record the CDP target the task's browser_exec session drives (None: unknown)."""
+        with self._state_lock:
+            self._driven_target_id = target_id
+
     def focus_page(self, origin: str, *, accept: Optional[str] = None, timeout: float = 10.0) -> dict[str, Any]:
         """Re-attach the supervisor's page session to an open page target on ``origin``
         (``scheme://host[:port]``). The initial attach picks the FIRST page target, but tools
         that open their own tabs (browser_exec) put the login form somewhere else. With
         ``accept`` (a JS expression) the first same-origin tab where it evaluates truthy wins,
-        so a login and a checkout tab on one site resolve to the right one. Returns
+        so a login and a checkout tab on one site resolve to the right one. When the tab browser_exec
+        drives (``set_driven_target``) is on ``origin`` it is the only candidate, probe or not: on a shared
+        CDP browser the first same-origin tab can be another session's or a stale one. Returns
         ``{"ok": True, "url"}`` or ``{"ok": False, "error"}``; on failure the previous session stays."""
         loop = self._loop
         if loop is None or not loop.is_running():
@@ -319,12 +329,19 @@ class CDPSupervisor(DialogSupervisionMixin, FrameTrackingMixin):
                         candidates.append((t["targetId"], url))
                 except Exception:
                     continue
+            with self._state_lock:
+                driven = self._driven_target_id
+            probe = accept
+            if own := [c for c in candidates if c[0] == driven]:
+                # Focus our own tab even before its form renders (the fill then finds no field) rather
+                # than let the probe fall through to another session's tab on the same origin.
+                candidates, probe = own, None
             for target_id, url in candidates:
                 sid = await _attach(target_id)
-                if accept:
-                    probe = await self._cdp("Runtime.evaluate", {"expression": accept, "returnByValue": True},
-                                            session_id=sid, timeout=timeout)
-                    if not probe.get("result", {}).get("result", {}).get("value"):
+                if probe:
+                    probed = await self._cdp("Runtime.evaluate", {"expression": probe, "returnByValue": True},
+                                             session_id=sid, timeout=timeout)
+                    if not probed.get("result", {}).get("result", {}).get("value"):
                         await self._cdp("Target.detachFromTarget", {"sessionId": sid}, timeout=timeout)
                         continue
                 with self._state_lock:

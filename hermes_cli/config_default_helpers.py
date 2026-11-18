@@ -22,6 +22,7 @@ def security_defaults():
         # dials them instead of rejecting them as private. Empty = normal private-address verdict.
         "fake_ip_ranges": [],
         "redact_secrets": True,
+        "redact_phone_numbers": True,  # false: E.164 numbers shown in replies/chat only, never other secrets
         # Ordinary terminal/file results only; credential guards and diagnostics remain separate.
         "ordinary_output": "redact",  # "fidelity" preserves ordinary content; restart to apply.
         # Persisted acknowledgement for unattended model overrides whose tier lets the vendor train

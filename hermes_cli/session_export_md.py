@@ -170,8 +170,10 @@ def verify_export_file(path: Path | str, session: dict[str, Any]) -> tuple[bool,
 def redact_session_data(session: dict[str, Any]) -> dict[str, Any]:
     """Return a copy of a session export dict with secrets redacted.
 
-    Includes metadata, system prompts and tool arguments. The private replay
-    source is never mutated. Pattern sanitization is best effort, not anonymization.
+    Runs every string in the export, including keys, metadata, system prompts and tool
+    arguments, through the force-mode redaction pass (#90361); secret-named fields are
+    replaced. The private replay source is never mutated. Pattern sanitization is best
+    effort, not anonymization.
     """
     from agent.redact import is_secret_field_name, redact_sensitive_text
 
@@ -181,8 +183,16 @@ def redact_session_data(session: dict[str, Any]) -> dict[str, Any]:
         if isinstance(value, list):
             return [_clean(v) for v in value]
         if isinstance(value, dict):
-            return {_clean(k): "[REDACTED]" if is_secret_field_name(k) and v else _clean(v)
-                    for k, v in value.items()}
+            out: dict[Any, Any] = {}
+            for key, item in value.items():
+                masked = _clean(key) if isinstance(key, str) else key
+                # Two keys can mask to the same text ("***"): number the later ones so no
+                # entry is silently dropped; the suffix carries no secret bytes.
+                unique, n = masked, 2
+                while unique in out:
+                    unique, n = f"{masked}#{n}", n + 1
+                out[unique] = "[REDACTED]" if isinstance(key, str) and is_secret_field_name(key) and item else _clean(item)
+            return out
         return value
 
     return {**_clean(session), "export_redaction": "sanitized"}
