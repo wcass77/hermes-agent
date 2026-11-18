@@ -102,13 +102,14 @@ class CDPSupervisor(DialogSupervisionMixin, FrameTrackingMixin):
     are sync, thread-safe bridges onto that loop; all CDP I/O lives on the loop."""
 
     def __init__(self, task_id: str, cdp_url: str, *, dialog_policy: str = DEFAULT_DIALOG_POLICY,
-                 dialog_timeout_s: float = DEFAULT_DIALOG_TIMEOUT_S) -> None:
+                 dialog_timeout_s: float = DEFAULT_DIALOG_TIMEOUT_S, command_binding_required: bool = False) -> None:
         if dialog_policy not in _VALID_POLICIES:
             raise ValueError(f"Invalid dialog_policy {dialog_policy!r}; must be one of {sorted(_VALID_POLICIES)}")
         self.task_id = task_id
         self.cdp_url = cdp_url
         self.dialog_policy = dialog_policy
         self.dialog_timeout_s = float(dialog_timeout_s)
+        self._command_binding_required = command_binding_required
 
         # State protected by ``_state_lock`` for cross-thread reads.
         self._state_lock = threading.Lock()
@@ -127,6 +128,10 @@ class CDPSupervisor(DialogSupervisionMixin, FrameTrackingMixin):
         self._pending_calls: dict[int, asyncio.Future] = {}
         self._ws: Optional[ClientConnection] = None
         self._page_session_id: Optional[str] = None
+        self._command_target_id: Optional[str] = None
+        self._binding_generation = 0
+        self._command_admission = lambda: False
+        self._secret_admission = lambda: False
         # Dialog auto-dismiss watchdog handles (per dialog id) + id generator.
         self._dialog_watchdogs: dict[str, asyncio.TimerHandle] = {}
         self._dialog_seq = 0
@@ -182,6 +187,8 @@ class CDPSupervisor(DialogSupervisionMixin, FrameTrackingMixin):
                           dialog_id: Optional[str] = None, timeout: float = 10.0) -> dict[str, Any]:
         """Accept/dismiss a pending dialog (sync bridge onto the supervisor loop). Returns
         ``{"ok": True, "dialog"}`` or ``{"ok": False, "error"}`` for recoverable errors."""
+        if getattr(self, "_command_binding_required", False) and not self._command_admission():
+            return _fail("supervisor target reconciliation required")
         if action not in {"accept", "dismiss"}:
             return _fail(f"action must be 'accept' or 'dismiss', got {action!r}")
         with self._state_lock:
@@ -216,6 +223,8 @@ class CDPSupervisor(DialogSupervisionMixin, FrameTrackingMixin):
         Returns ``{"ok": True, "result", "result_type"}`` or ``{"ok": False, "error"}``.
         ``return_by_value=True`` JSON-serializes the result (DevTools-console
         semantics); non-serializable objects come back as a description string."""
+        if getattr(self, "_command_binding_required", False) and not self._secret_admission():
+            return _fail("supervisor target reconciliation or fresh snapshot required")
         loop = self._loop
         if loop is None or not loop.is_running():
             return _fail("supervisor loop is not running")
@@ -276,6 +285,20 @@ class CDPSupervisor(DialogSupervisionMixin, FrameTrackingMixin):
         if loop is None or not loop.is_running():
             return _fail("supervisor loop is not running")
 
+        if self._command_binding_required:
+            # Vault/Paycom helpers may inspect the pinned page, never select a
+            # different same-origin tab behind the command daemon's back.
+            if not self._secret_admission():
+                return _fail("supervisor target reconciliation or fresh snapshot required")
+            current = self.evaluate_runtime("location.origin")
+            if not current.get("ok") or (origin and current.get("result") != origin):
+                return _fail("the pinned page has a different origin")
+            if accept:
+                probe = self.evaluate_runtime(accept)
+                if not probe.get("ok") or not probe.get("result"):
+                    return _fail("the pinned page does not have the expected form")
+            return {"ok": True, "url": current.get("result")}
+
         async def _attach(target_id: str) -> str:
             attach = await self._cdp("Target.attachToTarget", {"targetId": target_id, "flatten": True}, timeout=timeout)
             sid = attach["result"]["sessionId"]
@@ -306,6 +329,8 @@ class CDPSupervisor(DialogSupervisionMixin, FrameTrackingMixin):
                         continue
                 with self._state_lock:
                     self._page_session_id = sid
+                    self._command_target_id = None
+                    self._frames.clear()
                 return {"ok": True, "url": url}
             return _fail(f"no open page on {origin or 'any site'}" + (" with the expected form" if accept and candidates else ""))
 
@@ -437,8 +462,76 @@ class CDPSupervisor(DialogSupervisionMixin, FrameTrackingMixin):
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, 10.0)
 
+    def matches_command_target(self, target_id: Optional[str]) -> bool:
+        """Only a verified exact command target may contribute page data/actions."""
+        with self._state_lock:
+            return bool(target_id and self._active and self._page_session_id
+                        and target_id == self._command_target_id)
+
+    async def _attach_command_page(self, target_id: str, *, generation: Optional[int] = None) -> None:
+        if generation is None:
+            with self._state_lock:
+                generation = self._binding_generation
+        targets = (await self._cdp("Target.getTargets")).get("result", {}).get("targetInfos", [])
+        if not any(t.get("type") == "page" and t.get("targetId") == target_id for t in targets):
+            raise RuntimeError("command_target_gone")
+        attach = await self._cdp("Target.attachToTarget", {"targetId": target_id, "flatten": True})
+        sid = attach["result"]["sessionId"]
+        await self._enable_page_domains(sid, timeout=10.0)
+        tree = (await self._cdp("Page.getFrameTree", session_id=sid)).get("result", {}).get("frameTree")
+        if not tree or not tree.get("frame", {}).get("id"):
+            raise RuntimeError("command_frame_tree_unavailable")
+        with self._state_lock:
+            if generation != self._binding_generation:
+                raise RuntimeError("command_binding_expired")
+            self._frames.clear()
+            self._pending_dialogs.clear()
+            self._recent_dialogs.clear()
+            self._page_session_id = sid
+            self._command_target_id = target_id
+        def seed(node):
+            self._on_frame_navigated({"frame": node["frame"]}, sid)
+            for child in node.get("childFrames", []):
+                seed(child)
+        seed(tree)
+
+    def bind_command_target(self, target_id: str, *, timeout: float = 10.0) -> dict[str, Any]:
+        """Trusted command-backend bridge only; origin/URL guesses are not identities.
+
+        Adapter wiring is intentionally absent from this inactive candidate until
+        the installed command backend can prove its actual target ID.
+        """
+        if not isinstance(target_id, str) or not target_id.strip():
+            return _fail("command_target_unverified")
+        loop = self._loop
+        if loop is None or not loop.is_running():
+            return _fail("supervisor loop is not running")
+        # Stop publishing the old binding BEFORE beginning a possibly failing attach.
+        with self._state_lock:
+            self._binding_generation += 1
+            generation = self._binding_generation
+            self._command_target_id = None
+            self._page_session_id = None
+            self._frames.clear()
+            self._pending_dialogs.clear()
+            self._recent_dialogs.clear()
+        try:
+            _schedule(self._attach_command_page(target_id, generation=generation), loop, timeout=timeout)
+            return {"ok": True, "target_id": target_id}
+        except Exception:
+            with self._state_lock:
+                self._binding_generation += 1
+                self._command_target_id = None
+                self._page_session_id = None
+                self._frames.clear()
+            return _fail("command_target_binding_failed")
+
     async def _attach_initial_page(self) -> None:
-        """Find (or create) a page target, attach flattened, enable domains, install dialog bridge."""
+        """Reconnect only to a proven target; never adopt/create an unrelated page."""
+        if self._command_binding_required:
+            if self._command_target_id:
+                await self._attach_command_page(self._command_target_id)
+            return
         targets = (await self._cdp("Target.getTargets")).get("result", {}).get("targetInfos", [])
         page_target = next((t for t in targets if t.get("type") == "page"), None)
         if page_target is None:
@@ -523,7 +616,8 @@ class _SupervisorRegistry:
         return capture(self, task_id, timeout=timeout)
 
     def get_or_start(self, task_id: str, cdp_url: str, *, dialog_policy: str = DEFAULT_DIALOG_POLICY,
-                     dialog_timeout_s: float = DEFAULT_DIALOG_TIMEOUT_S, start_timeout: float = 15.0) -> CDPSupervisor:
+                     dialog_timeout_s: float = DEFAULT_DIALOG_TIMEOUT_S, start_timeout: float = 15.0,
+                     command_binding_required: bool = False) -> CDPSupervisor:
         """Idempotently ensure a supervisor runs for ``(task_id, cdp_url)``; one bound to a
         different ``cdp_url`` or unhealthy (dead thread / stopped loop) is stopped and replaced."""
         from hermes_constants import hermes_home_key
@@ -533,19 +627,22 @@ class _SupervisorRegistry:
             if existing is not None:
                 thread, loop = existing._thread, existing._loop
                 healthy = thread is not None and thread.is_alive() and loop is not None and loop.is_running()
-                if existing.cdp_url == cdp_url and healthy:
+                if existing.cdp_url == cdp_url and healthy and getattr(existing, "_command_binding_required", False) == command_binding_required:
                     return existing
                 self._by_task.pop(task_id, None)
         if existing is not None:
             existing.stop()
 
-        supervisor = CDPSupervisor(task_id=task_id, cdp_url=cdp_url,
-                                   dialog_policy=dialog_policy, dialog_timeout_s=dialog_timeout_s)
+        options = dict(task_id=task_id, cdp_url=cdp_url,
+                       dialog_policy=dialog_policy, dialog_timeout_s=dialog_timeout_s)
+        if command_binding_required:
+            options["command_binding_required"] = True
+        supervisor = CDPSupervisor(**options)
         supervisor.start(timeout=start_timeout)
         with self._lock:
             # Guard against a concurrent get_or_start from another thread.
             already = self._by_task.get(task_id)
-            if already is not None and already.cdp_url == cdp_url:
+            if already is not None and already.cdp_url == cdp_url and getattr(already, "_command_binding_required", False) == command_binding_required:
                 supervisor.stop()
                 return already
             self._by_task[task_id] = supervisor

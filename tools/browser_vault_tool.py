@@ -107,9 +107,15 @@ def _ensure_supervisor(task_id: str):
     refuses rather than touching argv."""
     from tools.browser_supervisor import SUPERVISOR_REGISTRY
 
+    from tools import browser_exec_target
+    exact_target = browser_exec_target.enabled()
     supervisor = SUPERVISOR_REGISTRY.get(task_id)
     if supervisor is not None:
+        if exact_target and getattr(supervisor, "_command_binding_required", False) is not True:
+            return None  # never fill through an unbound supervisor on a shared browser
         return supervisor
+    if exact_target:
+        return None  # only browser_exec may start (and bind) the supervisor on a shared browser
     from tools.browser_session import session_for_task
     from tools.browser_session_cdp import get_dialog_policy_config, resolve_cdp_override
 

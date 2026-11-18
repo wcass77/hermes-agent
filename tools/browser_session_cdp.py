@@ -144,8 +144,13 @@ def ensure_cdp_supervisor(task_id: str) -> None:
     try:
         from tools.browser_supervisor import SUPERVISOR_REGISTRY
         policy, timeout_s = get_dialog_policy_config()
-        SUPERVISOR_REGISTRY.get_or_start(task_id=task_id, cdp_url=cdp_url, dialog_policy=policy,
-                                         dialog_timeout_s=timeout_s)
+        options = dict(task_id=task_id, cdp_url=cdp_url, dialog_policy=policy, dialog_timeout_s=timeout_s)
+        from tools import browser_exec_target
+        if get_cdp_override() and browser_exec_target.enabled():
+            options["command_binding_required"] = True  # stays unbound until browser_exec verifies a tab
+        supervisor = SUPERVISOR_REGISTRY.get_or_start(**options)
+        if options.get("command_binding_required"):
+            browser_exec_target.install_admission(supervisor, task_id)
     except Exception as exc:  # health: allow BLE001 -- a failed supervisor attach must not break the session
         logger.debug("CDP supervisor attach for task=%s failed (non-fatal): %s", task_id, exc)
 

@@ -145,6 +145,73 @@ def install(helpers: Any, activate: str = ACTIVATE_NEVER) -> None:
                                                              activate_hidden=check)
     if activate != ACTIVATE_NEVER and _is_harness_helper(helpers.new_tab):
         helpers.new_tab = make_new_tab(helpers.new_tab, helpers.cdp, activate=check)
+    if os.environ.get(TARGET_REPORT_ENV):  # last, so it guards the replacements above too
+        install_target_report(helpers)
+
+
+# Exact-tab reporting for tools/browser_exec_target.py (shared CDP browsers with exact_target_binding).
+TARGET_REPORT_ENV = "HERMES_BU_TARGET_REPORT"
+TARGET_EXPECTED_ENV = "HERMES_BU_EXPECTED_TARGET"
+# Helpers that only inspect or explicitly select tabs may run before the tab check; the next helper is checked.
+_TAB_INSPECT = frozenset({"list_tabs", "current_tab"})
+_TAB_SELECT = frozenset({"switch_tab", "new_tab"})
+
+
+class TargetChanged(SystemExit):
+    pass
+
+
+def install_target_report(helpers: Any) -> None:
+    """Report the attached target before the model's first acting helper and at exit (atexit also runs on an
+    exception or SystemExit; a killed process writes nothing, which Hermes treats as uncertain). When the
+    attached tab differs from the one Hermes last verified, refuse before any acting helper runs, unless the
+    code first selects a tab explicitly."""
+    import atexit
+    import json
+
+    path = os.environ[TARGET_REPORT_ENV]
+    expected = os.environ.get(TARGET_EXPECTED_ENV) or None
+    send = helpers._send
+    report: dict = {"pre": None, "checked": expected is None}
+
+    def attached() -> Any:
+        try:
+            return send({"meta": "current_tab"}).get("targetId")
+        except Exception:
+            return None
+
+    def write() -> None:
+        if "refused" not in report:
+            report["post"] = attached()
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as stream:
+            json.dump(report, stream)
+
+    atexit.register(write)
+
+    def guard(name: str, fn: Callable[..., Any]) -> Callable[..., Any]:
+        def guarded(*args, **kwargs):
+            if not report["checked"]:
+                if name in _TAB_SELECT:
+                    report["checked"] = True
+                elif name not in _TAB_INSPECT:
+                    report["pre"] = attached()
+                    report["checked"] = True
+                    if report["pre"] != expected:
+                        report["refused"] = "target_changed"
+                        raise TargetChanged("browser tab changed since the last verified call; no action taken")
+            return fn(*args, **kwargs)
+        guarded.__name__ = getattr(fn, "__name__", name)
+        guarded.__doc__ = getattr(fn, "__doc__", None)
+        guarded.__wrapped__ = fn
+        return guarded
+
+    import inspect
+    for name in dir(helpers):
+        fn = getattr(helpers, name)
+        if (not name.startswith("_") and inspect.isfunction(fn)
+                and getattr(fn, "__module__", "") in (_HARNESS_MODULE, __name__)):
+            setattr(helpers, name, guard(name, fn))
 
 
 _HARNESS_MODULE_ARGS = ["-m", "browser_harness.run"]

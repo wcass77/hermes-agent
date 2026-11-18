@@ -503,21 +503,29 @@ def _resolve_real_profile_cdp(env: dict, force_local: bool) -> Optional[str]:
     return err or None
 
 
-def _attach_vault_supervisor(env: dict, task_id: Optional[str]) -> None:
+def _attach_vault_supervisor(env: dict, task_id: Optional[str], exact_target: bool = False):
     """Attach the per-task CDP supervisor to the browser this exec drives so ``browser_vault`` fill has
     a secret-capable WebSocket (never argv) into the SAME browser. Only CDP-routed backends expose an
     endpoint; BU direct-cloud (BU_AUTOSPAWN) does not, and the vault tools report ``supervisor_required``."""
     cdp = env.get("BU_CDP_WS") or env.get("BU_CDP_URL")
     if not cdp:
-        return
+        return None
     try:
         from tools.browser_session_cdp import get_dialog_policy_config, resolve_cdp_override
         from tools.browser_supervisor import SUPERVISOR_REGISTRY
         policy, timeout_s = get_dialog_policy_config()
-        SUPERVISOR_REGISTRY.get_or_start(task_id=task_id or "default", cdp_url=resolve_cdp_override(cdp),
-                                         dialog_policy=policy, dialog_timeout_s=timeout_s)
+        options = dict(task_id=task_id or "default", cdp_url=resolve_cdp_override(cdp),
+                       dialog_policy=policy, dialog_timeout_s=timeout_s)
+        if exact_target:
+            options["command_binding_required"] = True
+        supervisor = SUPERVISOR_REGISTRY.get_or_start(**options)
+        if exact_target:
+            from tools import browser_exec_target
+            browser_exec_target.install_admission(supervisor, task_id)
+        return supervisor
     except Exception as exc:
         logger.debug("browser_exec: CDP supervisor attach failed (non-fatal): %s", exc)
+    return None
 
 
 def _route_backend(env: dict, session: str, task_id: Optional[str], local: bool,
@@ -833,9 +841,19 @@ def browser_exec(code: str, session: str = "", timeout_s: int = _DEFAULT_TIMEOUT
 
     timeout = _clamp_timeout(timeout_s)
     started = time.time()
+    # Shared CDP browser with exact_target_binding: bind the supervisor to the exact tab this call drove.
+    from tools import browser_exec_target
+    exact_target = browser_exec_target.enabled() and _has_cdp_env(env)
+    target_report: Optional[str] = None
+    supervisor_box: list = [None]
 
     def dispatch() -> dict[str, Any]:
-        _attach_vault_supervisor(env, task_id)
+        nonlocal target_report
+        # Upstream's two-argument call is kept unless the fork's exact-tab binding is enabled.
+        supervisor_box[0] = (_attach_vault_supervisor(env, task_id, True) if exact_target
+                             else _attach_vault_supervisor(env, task_id))
+        if exact_target:
+            target_report = browser_exec_target.begin(env, task_id, route_key)
         with _driven_daemons_lock:
             daemon = daemon_identity(env)
             _driven_daemons[daemon] = hermes_home_key()
@@ -846,6 +864,11 @@ def browser_exec(code: str, session: str = "", timeout_s: int = _DEFAULT_TIMEOUT
         try:
             return {"proc": _run_cli_killing_process_group(cmd, code, env, timeout)}
         except subprocess.TimeoutExpired:
+            if exact_target:
+                return {"error_result": tool_error(
+                    f"browser-use exec timed out after {timeout}s. The daemon may still be working and the "
+                    "page may have changed. Inspect the page before acting; do not repeat the action. Anything "
+                    "already written to the workspace is preserved.")}
             return {"error_result": tool_error(
                 f"browser-use exec timed out after {timeout}s. The daemon may still be working; retry "
                 f"with a larger timeout_s (max {_MAX_TIMEOUT_S}), or split the work into several calls that "
@@ -856,16 +879,30 @@ def browser_exec(code: str, session: str = "", timeout_s: int = _DEFAULT_TIMEOUT
         finally:
             owning.cancel(wait=5)  # an in-flight check finishes before the post-call one runs
 
-    if bot_desktop_browser:
-        from tools.browser_session import run_fenced
-        dispatched = run_fenced({"features": {"local": True}}, dispatch)
+    def fenced_dispatch() -> dict[str, Any]:
+        if bot_desktop_browser:
+            from tools.browser_session import run_fenced
+            return run_fenced({"features": {"local": True}}, dispatch)
+        return dispatch()
+
+    target_fields: dict = {}
+    if exact_target:
+        with browser_exec_target.task_lock(task_id):  # one call per task drives the bound tab at a time
+            try:
+                dispatched = fenced_dispatch()
+            finally:
+                if target_report is not None:
+                    target_fields = browser_exec_target.finish(task_id, route_key, target_report,
+                                                               supervisor_box[0])
     else:
-        dispatched = dispatch()
+        dispatched = fenced_dispatch()
     _reload_if_republished(env, generation)
     _own_harness_daemon(env)
+    if "target_error" in target_fields:
+        return tool_error(target_fields["target_error"])
     if "proc" not in dispatched:
         if "error_result" in dispatched:
-            return dispatched["error_result"]
+            return dispatched["error_result"]  # exact-target state is already marked uncertain
         return tool_result(dispatched)
     proc = dispatched["proc"]
 
@@ -881,6 +918,7 @@ def browser_exec(code: str, session: str = "", timeout_s: int = _DEFAULT_TIMEOUT
     if session:
         result["session"] = session
     result.update(_take_real_profile_note(route_key))
+    result.update(target_fields)
     stderr = redact_sensitive_text((proc.stderr or "").strip(), force=True)
     if len(stderr) > _STDERR_CAP_CHARS:
         stderr = stderr[:_STDERR_CAP_CHARS] + "\n… (stderr truncated)"
