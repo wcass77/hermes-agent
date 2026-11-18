@@ -194,6 +194,24 @@ def test_guard_allows_inspection_then_explicit_selection(monkeypatch, hook):
     assert hook.run()["post"] == "C"
 
 
+def test_guard_ignores_helpers_called_inside_inspection(monkeypatch, hook):
+    monkeypatch.setenv(shot.TARGET_EXPECTED_ENV, "A")
+    attached = ["B"]
+    helpers, calls = _helpers(attached)
+    real_list = helpers.list_tabs
+
+    def list_tabs_calling_cdp():
+        helpers.cdp("Target.getTargets")  # module-global lookup reaches the guarded cdp
+        return real_list()
+    list_tabs_calling_cdp.__module__ = shot._HARNESS_MODULE
+    helpers.list_tabs = list_tabs_calling_cdp
+    shot.install_target_report(helpers)
+    helpers.list_tabs()
+    helpers.switch_tab("C")
+    assert calls == ["cdp", "list_tabs", "switch_tab"]
+    assert "refused" not in hook.run()
+
+
 def test_guard_passes_matching_tab_and_reports_post(monkeypatch, hook):
     monkeypatch.setenv(shot.TARGET_EXPECTED_ENV, "A")
     attached = ["A"]

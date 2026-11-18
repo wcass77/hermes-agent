@@ -189,8 +189,12 @@ def install_target_report(helpers: Any) -> None:
 
     atexit.register(write)
 
+    depth = [0]  # helpers call other helpers: only the agent's outermost call is classified
+
     def guard(name: str, fn: Callable[..., Any]) -> Callable[..., Any]:
         def guarded(*args, **kwargs):
+            if depth[0]:
+                return fn(*args, **kwargs)
             if not report["checked"]:
                 if name in _TAB_SELECT:
                     report["checked"] = True
@@ -200,7 +204,11 @@ def install_target_report(helpers: Any) -> None:
                     if report["pre"] != expected:
                         report["refused"] = "target_changed"
                         raise TargetChanged("browser tab changed since the last verified call; no action taken")
-            return fn(*args, **kwargs)
+            depth[0] += 1
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                depth[0] -= 1
         guarded.__name__ = getattr(fn, "__name__", name)
         guarded.__doc__ = getattr(fn, "__doc__", None)
         guarded.__wrapped__ = fn
