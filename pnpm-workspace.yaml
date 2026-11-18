@@ -56,6 +56,10 @@ overrides:
   yaml: 2.9.1
   vitest: 4.1.12
   '@vitest/mocker': 4.1.12
+  # Personal OS fork: GHSA-mrwp-f3q8-3g9p (follow-redirects) and GHSA-4528-x5fx-h6hg (joi), both via
+  # apps/desktop wait-on; published Oct 25/28, outside the 14-day release-age window.
+  follow-redirects@^1: 1.16.2
+  joi@^18: 18.3.1
 
 allowBuilds:
   unicode-animations: false
