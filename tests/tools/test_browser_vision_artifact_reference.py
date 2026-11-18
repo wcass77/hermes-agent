@@ -5,7 +5,7 @@ from tools import browser_use_cli
 
 
 def test_native_and_fallback_text_expose_original_screenshot(tmp_path, monkeypatch):
-    import tools.vision_tools as vision_tools
+    from tools import vision_tools
     monkeypatch.setattr(vision_tools, "_should_use_native_vision_fast_path", lambda *a, **k: True)
     screenshot = tmp_path / "browser_screenshot.png"
     Image.new("RGB", (16, 16), "white").save(screenshot)

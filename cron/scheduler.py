@@ -3884,6 +3884,7 @@ def _run_external_worker_payload(payload_path: Path, ack_path: Path) -> bool:
         set_multiplex_active(multiplex_active)
         # Discover the owning profile's plugin sources before hydration (#121929).
         worker_scope, credential_receipt = collect_worker_credentials(profile_home)
+        # health: allow HX016 -- upstream call site; the fork only passes a scope built with credential diagnostics
         secret_token = set_secret_scope(worker_scope, profile_home=str(profile_home))
         # This process never ran gateway startup, so the OWNING profile's ``hooks:`` block (shell
         # hooks + ``hooks.outbound``) was never registered and cron sessions silently lost it

@@ -535,7 +535,8 @@ class CDPSupervisor(DialogSupervisionMixin, FrameTrackingMixin):
         try:
             _schedule(self._attach_command_page(target_id, generation=generation), loop, timeout=timeout)
             return {"ok": True, "target_id": target_id}
-        except Exception:
+        except Exception:  # health: allow BLE001 -- fail closed: any attach failure unbinds, so secret fills stay refused
+            logger.warning("CDP supervisor %s: command target binding failed", self.task_id, exc_info=True)
             with self._state_lock:
                 self._binding_generation += 1
                 self._command_target_id = None

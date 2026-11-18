@@ -25,6 +25,7 @@ def client_mcp_tool_filters(home=None) -> dict[str, dict]:
     from hermes_cli.config_read_errors import FailedConfigRead
     from hermes_constants import reset_hermes_home_override, set_hermes_home_override
 
+    # health: allow HX016 -- reads one profile config.yaml only; no secrets, terminal or turn scope is used
     token = set_hermes_home_override(home) if home is not None else None
     try:
         config = load_config()

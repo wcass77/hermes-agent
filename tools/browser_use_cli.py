@@ -290,9 +290,45 @@ def _screenshot_dir() -> Optional[str]:
         path = get_hermes_dir("cache/screenshots", "browser_screenshots")
         path.mkdir(parents=True, exist_ok=True)
         return str(path)
-    except Exception as e:
+    except (OSError, ValueError) as e:
         logger.debug("browser_exec screenshot dir unavailable: %s", e)
         return None
+
+
+def _arm_exact_target(env: dict, task_id: Optional[str], route_key: str, exact_target: bool):
+    """Attach the vault supervisor and, with the fork's exact-tab binding, arm this call's target
+    report. Upstream's two-argument attach is kept when binding is off. Returns (supervisor, report)."""
+    if not exact_target:
+        return _attach_vault_supervisor(env, task_id), None
+    from tools import browser_exec_target
+    return _attach_vault_supervisor(env, task_id, True), browser_exec_target.begin(env, task_id, route_key)
+
+
+def _timeout_message(timeout: float, exact_target: bool) -> str:
+    if exact_target:  # fork: an unconfirmed outcome is inspected, never replayed
+        return (f"browser-use exec timed out after {timeout}s. The daemon may still be working and the page "
+                "may have changed. Inspect the page before acting; do not repeat the action. Anything already "
+                "written to the workspace is preserved.")
+    return (f"browser-use exec timed out after {timeout}s. The daemon may still be working; retry "
+            f"with a larger timeout_s (max {_MAX_TIMEOUT_S}), or split the work into several calls that "
+            "append to workspace files — anything already written to the workspace is preserved.")
+
+
+def _dispatch_exact_target(task_id: Optional[str], route_key: str, run, armed, exact_target: bool):
+    """Run one dispatch; with exact-tab binding, hold the task's lock and reconcile its target report.
+    ``armed()`` returns (report path, supervisor) after ``run`` armed them. Returns (dispatched, fields)."""
+    if not exact_target:
+        return run(), {}
+    from tools import browser_exec_target
+    fields: dict = {}
+    with browser_exec_target.task_lock(task_id):  # one call per task drives the bound tab at a time
+        try:
+            dispatched = run()
+        finally:
+            report, supervisor = armed()
+            if report is not None:
+                fields = browser_exec_target.finish(task_id, route_key, report, supervisor)
+    return dispatched, fields
 
 
 def _find_screenshot(stdout: str, since: float) -> Optional[str]:
@@ -532,10 +568,10 @@ def _attach_vault_supervisor(env: dict, task_id: Optional[str], exact_target: bo
     return None
 
 
-def _record_driven_tab(env: dict, task_id: Optional[str]) -> None:
+def _record_driven_tab(env: dict, task_id: Optional[str], *, bound_by_report: bool = False) -> None:
     """Tell the task's vault supervisor which tab this exec's daemon drives, so a later
     ``browser_vault`` fill lands in that tab rather than the first one on the origin."""
-    if not (env.get("BU_CDP_WS") or env.get("BU_CDP_URL")):
+    if bound_by_report or not (env.get("BU_CDP_WS") or env.get("BU_CDP_URL")):
         return
     from tools.browser_supervisor import SUPERVISOR_REGISTRY
     supervisor = SUPERVISOR_REGISTRY.get(task_id or "default")
@@ -876,11 +912,7 @@ def browser_exec(code: str, session: str = "", timeout_s: int = _DEFAULT_TIMEOUT
 
     def dispatch() -> dict[str, Any]:
         nonlocal target_report
-        # Upstream's two-argument call is kept unless the fork's exact-tab binding is enabled.
-        supervisor_box[0] = (_attach_vault_supervisor(env, task_id, True) if exact_target
-                             else _attach_vault_supervisor(env, task_id))
-        if exact_target:
-            target_report = browser_exec_target.begin(env, task_id, route_key)
+        supervisor_box[0], target_report = _arm_exact_target(env, task_id, route_key, exact_target)
         with _driven_daemons_lock:
             daemon = daemon_identity(env)
             _driven_daemons[daemon] = hermes_home_key()
@@ -891,22 +923,14 @@ def browser_exec(code: str, session: str = "", timeout_s: int = _DEFAULT_TIMEOUT
         try:
             return {"proc": _run_cli_killing_process_group(cmd, code, env, timeout)}
         except subprocess.TimeoutExpired:
-            if exact_target:
-                return {"error_result": tool_error(
-                    f"browser-use exec timed out after {timeout}s. The daemon may still be working and the "
-                    "page may have changed. Inspect the page before acting; do not repeat the action. Anything "
-                    "already written to the workspace is preserved.")}
-            return {"error_result": tool_error(
-                f"browser-use exec timed out after {timeout}s. The daemon may still be working; retry "
-                f"with a larger timeout_s (max {_MAX_TIMEOUT_S}), or split the work into several calls that "
-                "append to workspace files — anything already written to the workspace is preserved."
-            )}
+            return {"error_result": tool_error(_timeout_message(timeout, exact_target))}
         except OSError as e:
             return {"error_result": tool_error(f"Failed to launch browser-use CLI: {e}")}
         finally:
             owning.cancel(wait=5)  # an in-flight check finishes before the post-call one runs
-            if not exact_target:  # fork: the exact-target report already binds the supervisor
-                _record_driven_tab(env, task_id)  # only a call that ran: the supervisor is this call's browser's
+            # Only a call that ran: the supervisor is this call's browser's. Fork: with exact-tab binding the
+            # target report already binds the supervisor, so the looser driven-tab hint is not recorded.
+            _record_driven_tab(env, task_id, bound_by_report=exact_target)
 
     def fenced_dispatch() -> dict[str, Any]:
         if bot_desktop_browser:
@@ -914,17 +938,8 @@ def browser_exec(code: str, session: str = "", timeout_s: int = _DEFAULT_TIMEOUT
             return run_fenced({"features": {"local": True}}, dispatch)
         return dispatch()
 
-    target_fields: dict = {}
-    if exact_target:
-        with browser_exec_target.task_lock(task_id):  # one call per task drives the bound tab at a time
-            try:
-                dispatched = fenced_dispatch()
-            finally:
-                if target_report is not None:
-                    target_fields = browser_exec_target.finish(task_id, route_key, target_report,
-                                                               supervisor_box[0])
-    else:
-        dispatched = fenced_dispatch()
+    dispatched, target_fields = _dispatch_exact_target(
+        task_id, route_key, fenced_dispatch, lambda: (target_report, supervisor_box[0]), exact_target)
     _reload_if_republished(env, generation)
     _own_harness_daemon(env)
     if "target_error" in target_fields:

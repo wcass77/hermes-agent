@@ -18,6 +18,7 @@ Rules carried from the maintained fork fix (agent-browser era, d05b5d48):
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 import threading
@@ -44,8 +45,9 @@ def enabled() -> bool:
         from tools.browser_session_cdp import get_cdp_override_raw
         from tools.browser_session_cloud import browser_cfg
         return bool(get_cdp_override_raw()) and browser_cfg("exact_target_binding", False, lambda v: v is True)
-    except Exception:
-        return False
+    except Exception:  # health: allow BLE001 -- unreadable browser config fails closed (strict binding stays on)
+        logging.getLogger(__name__).warning("exact_target_binding unreadable; keeping strict binding", exc_info=True)
+        return True
 
 
 def _task(task_id: Optional[str]) -> dict[str, Any]:
@@ -94,7 +96,7 @@ def begin(env: dict, task_id: Optional[str], route_key: str) -> str:
 
 def _read_report(path: str) -> Optional[dict]:
     try:
-        with open(path, encoding="utf-8") as stream:
+        with open(path, encoding="utf-8-sig") as stream:
             report = json.load(stream)
         return report if isinstance(report, dict) else None
     except (OSError, ValueError):

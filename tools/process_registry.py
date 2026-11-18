@@ -2691,7 +2691,7 @@ def _handle_process(args, **kw):
         from tools.process_registry_access import resolve_actionable
         allowed, session_id = resolve_actionable(session_id, kw.get("task_id"))
         if not allowed:
-            return json.dumps(_not_found(session_id), ensure_ascii=False)
+            return json.dumps(not_found_process(session_id), ensure_ascii=False)
         handler, redact = _SESSION_ACTIONS[action]
         from tools.process_registry_wait_policy import apply_wait_poll_policy
         result = apply_wait_poll_policy(action, session_id, handler(session_id, args))

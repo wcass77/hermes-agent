@@ -169,5 +169,4 @@ per variant and a name → variant table (`tools/environments/`, its table still
 | `acp_adapter/` | `website/docs/developer-guide/acp-internals.md` | ACP server for editors |
 | `providers/` | `providers/README.md` | `ProviderProfile` registry and ABC |
 
-Fork updates and cleanup: [FORK-UPGRADES.md](FORK-UPGRADES.md).
 PR workflow: `CONTRIBUTING.md` (maintainers: the `hermes-agent-dev` skill, not shipped here).

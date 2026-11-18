@@ -584,11 +584,15 @@ class GatewayStreamConsumer(StreamTransportMixin, StreamFallbackMixin, StreamThi
         with reply_file_off():
             await self._run_loop()
 
-    async def _run_loop(self) -> None:
+    async def _start_and_seed(self) -> None:
+        """Resolve the length budget, start transports, then send the optional visible seed (fork)."""
         self._len_fn, self._safe_limit = self._resolve_length_budget()
         await self._start_transports()
         if self.cfg.initial_content:
             await self._send_or_edit(self.cfg.initial_content)
+
+    async def _run_loop(self) -> None:
+        await self._start_and_seed()
         try:
             while True:
                 # Session reset (/new, /stop): abandon rather than deliver stale deltas.

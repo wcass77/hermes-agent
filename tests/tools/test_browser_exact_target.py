@@ -215,7 +215,7 @@ def test_guard_ignores_helpers_called_inside_inspection(monkeypatch, hook):
 def test_guard_passes_matching_tab_and_reports_post(monkeypatch, hook):
     monkeypatch.setenv(shot.TARGET_EXPECTED_ENV, "A")
     attached = ["A"]
-    helpers, calls = _helpers(attached)
+    helpers, _calls = _helpers(attached)
     shot.install_target_report(helpers)
     helpers.js("1")
     helpers.goto_url("https://example.test")
@@ -226,7 +226,7 @@ def test_guard_passes_matching_tab_and_reports_post(monkeypatch, hook):
 def test_guard_without_expected_only_reports(monkeypatch, hook):
     monkeypatch.delenv(shot.TARGET_EXPECTED_ENV, raising=False)
     attached = ["Z"]
-    helpers, calls = _helpers(attached)
+    helpers, _calls = _helpers(attached)
     shot.install_target_report(helpers)
     helpers.click_at_xy(0, 0)
     assert hook.run()["post"] == "Z"
@@ -235,7 +235,7 @@ def test_guard_without_expected_only_reports(monkeypatch, hook):
 def test_install_guards_replaced_screenshot_helper(monkeypatch, hook):
     monkeypatch.setenv(shot.TARGET_EXPECTED_ENV, "A")
     attached = ["B"]
-    helpers, calls = _helpers(attached)
+    helpers, _calls = _helpers(attached)
     shot.install(helpers)  # replaces capture_screenshot, then guards everything
     assert getattr(helpers.capture_screenshot, "__wrapped__", None) is not None
     with pytest.raises(SystemExit):

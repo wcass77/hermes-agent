@@ -1809,16 +1809,12 @@ def redact_terminal_output(output: str, command: str | None = None, *, force: bo
     code_file=True avoids false positives on source/config dumps."""
     if not output:
         return output
-    from agent.output_policy import ordinary_output_policy
-
+    from agent.output_policy import terminal_fidelity
     secret_file = _command_reads_secret_file(command)
     code_file = not (secret_file or is_env_dump_command(command))
-    if not force and ordinary_output_policy() == "fidelity":
-        if code_file:
-            # Keep targeted exception diagnostics and exact vault guards without
-            # applying credential-pattern substitutions to ordinary source output.
-            return _redact_python_diagnostic_repr_fields(redact_registered_vault_values(output))
-        force = True  # Explicit credential-source reads remain protected in fidelity mode.
+    kept, force = terminal_fidelity(output, code_file, force)
+    if kept is not None:
+        return kept
     redacted = redact_sensitive_text(output, force=force, code_file=code_file, secret_file=secret_file)
     # Source-preserving output still gets the Python-repr pass on high-confidence
     # diagnostic lines (pytest ``E   `` introspection, final exception lines): that is

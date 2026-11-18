@@ -48,3 +48,17 @@ def protect_background_notification(text: str, command: str = "") -> str:
     if ordinary_output_policy() == "fidelity":
         return redact_terminal_output(text, command)
     return redact_for_egress(text)
+
+
+def terminal_fidelity(output: str, code_file: bool, force: bool) -> tuple[str | None, bool]:
+    """Ordinary terminal output under ``security.ordinary_output: fidelity``: ``(kept, force)``.
+
+    Ordinary source output keeps targeted exception diagnostics and exact vault guards without
+    credential-pattern substitutions (``kept``); explicit credential-source reads stay protected
+    (``force`` becomes True). ``(None, force)`` leaves the normal redaction path unchanged."""
+    if force or ordinary_output_policy() != "fidelity":
+        return None, force
+    if code_file:
+        from agent.redact import _redact_python_diagnostic_repr_fields, redact_registered_vault_values
+        return _redact_python_diagnostic_repr_fields(redact_registered_vault_values(output)), force
+    return None, True

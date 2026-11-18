@@ -187,14 +187,14 @@ def install_target_report(helpers: Any) -> None:
     def attached() -> Any:
         try:
             return send({"meta": "current_tab"}).get("targetId")
-        except Exception:
+        except Exception:  # health: allow BLE001 -- unknown tab is reported as None, which Hermes treats as uncertain
             return None
 
     def write() -> None:
         if "refused" not in report:
             report["post"] = attached()
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "w") as stream:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
             json.dump(report, stream)
 
     atexit.register(write)
