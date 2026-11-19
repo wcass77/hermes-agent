@@ -482,4 +482,3 @@ def test_pool_only_force_refresh_rotates_the_pool_entry(tmp_path, monkeypatch):
             "last_status": "ok", "auth_type": "oauth"}]},
     }))
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
-

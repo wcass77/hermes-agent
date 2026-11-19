@@ -139,7 +139,13 @@ async def test_dispatch_legacy_completion_admits_once_in_owner_profile(homes, mo
         with _profile_runtime_scope(home, prepared_secret_scope={}):
             restored, route = check_automation_route(runner, payload, receipt.ref.session_id, source, adapter)
             assert (restored.profile or 'default') == profile and route == key
-            await execute_admission(authority, receipt.ref, rows[-1])
+            # v0.23 executes only CLAIMED rows: settle the earlier human head, then claim the completion.
+            from hermes_state_runtime import claim_session_input, settle_session_input
+            from tests.gateway.session_claims import claim
+            head = claim_session_input(authority.db, epoch=authority.epoch, session_id=receipt.ref.session_id)
+            settle_session_input(authority.db, epoch=authority.epoch, admission_id=head['admission_id'],
+                                 generation=head['generation'], outcome='completed')
+            await execute_admission(authority, receipt.ref, claim(authority, receipt.ref, rows[-1]))
         assert executed == [(profile, home)]
         assert payload == rows[-1]['payload']  # restore never changes the retry fingerprint
         assert not adapter._background_tasks  # no inference or network send

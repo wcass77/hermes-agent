@@ -252,8 +252,7 @@ class TestMaybePersistToolResult:
         assert "tc_456.txt" in result
         assert len(result) < len(content)
 
-    def test_persists_full_content_as_is(self):
-        """Content is persisted verbatim — no JSON extraction."""
+    def test_persists_unwrapped_content_via_stdin(self):
         import json
         env = MagicMock()
         # Readability probe fails -> falls back to the in-sandbox write,
@@ -276,7 +275,7 @@ class TestMaybePersistToolResult:
         assert PERSISTED_OUTPUT_TAG in result
         # Content is delivered through stdin (no longer embedded in the
         # command string — see test_large_content_via_stdin for why).
-        assert env.execute.call_args_list[1][1]["stdin_data"] == content
+        assert env.execute.call_args_list[1][1]["stdin_data"].endswith("</tool-result-metadata>\n\n" + raw)
 
     def test_tool_use_id_cannot_escape_storage_dir(self):
         env = MagicMock()
@@ -423,6 +422,7 @@ class TestSpillover:
         from tools.environments.local import LocalEnvironment
 
         env = MagicMock(spec=LocalEnvironment)
+        env.uses_host_filesystem = LocalEnvironment.uses_host_filesystem
         content = "y" * 60_000
         result = maybe_persist_tool_result(
             content=content,
@@ -628,6 +628,185 @@ class TestSpillover:
         assert expired["error"].startswith("File not found:")
         assert expired.get("expired") is True and "expired" in expired["hint"]
         assert "expired" not in plain and "expired" not in (plain.get("hint") or "")
+
+# ── recovery hint in the persisted preview ────────────────────────────
+
+# ── MCP envelope unwrapping (#90426) ──────────────────────────────────
+
+class TestPageableText:
+    """Only the MCP handler's own envelope shape is unwrapped; every other JSON stays opaque."""
+
+    def test_single_result_envelope_is_unwrapped(self):
+        assert _pageable_text(json.dumps({"result": "line one\nline two"})) == "line one\nline two"
+
+    def test_envelope_metadata_is_kept_after_the_text(self):
+        out = _pageable_text(json.dumps({"result": "text\n", "structuredContent": {"answer": 42}}))
+        text, marker, tail = out.partition("\n\n<mcp-result-metadata>\n")
+        assert text == "text\n"
+        assert marker
+        assert json.loads(tail.split("\n</mcp-result-metadata>")[0]) == {"structuredContent": {"answer": 42}}
+
+    @pytest.mark.parametrize(
+        "content",
+        [
+            json.dumps({"output": "line\n", "exit_code": 0}),      # ordinary tool JSON
+            json.dumps({"result": "line\n", "exit_code": 0}),      # unknown sibling key
+            json.dumps([{"result": "line\n"}]),                    # not an object
+            json.dumps({"result": {"blob": "line\n"}}),            # structuredContent-only style
+            json.dumps({"structuredContent": {"a": 1}}),           # no model-facing text at all
+            json.dumps({"result": ""}),                            # empty text
+            "not json at all",
+            "plain text result",
+        ],
+    )
+    def test_unrecognized_content_is_verbatim(self, content):
+        assert _pageable_text(content) == content
+
+class TestMcpEnvelopeSpillover:
+    """An oversized MCP result spills its pageable text, not one escaped JSON line (#90426)."""
+
+    @pytest.fixture(autouse=True)
+    def _isolated_home(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+        import tools.tool_result_storage as trs
+        monkeypatch.setattr(trs, "_spillover_pruned_homes", set())
+        yield
+
+    def test_envelope_spills_real_newlines(self):
+        markdown = "# Research guide\n\n" + "pageable content\n" * 4_000
+        envelope = json.dumps({"result": markdown}, ensure_ascii=False)
+        assert len(envelope) > 30_000
+
+        result = maybe_persist_tool_result(
+            content=envelope, tool_name="mcp__archive__read_guide", tool_use_id="tc_mcp_text",
+            env=None, threshold=30_000)
+
+        assert PERSISTED_OUTPUT_TAG in result
+        spill_file = get_spillover_dir() / "tc_mcp_text.txt"
+        assert spill_file.read_text(encoding="utf-8") == markdown
+        # read_file offset/limit is only usable if the preview is the text too.
+        preview = result.split("Preview (first", 1)[1]
+        assert "# Research guide" in preview
+        assert "\\n" not in preview
+
+    def test_metadata_survives_after_the_text(self):
+        markdown = "body line\n" * 5_000
+        envelope = json.dumps({"result": markdown, "structuredContent": {"count": 5_000}})
+        maybe_persist_tool_result(
+            content=envelope, tool_name="mcp__archive__structured", tool_use_id="tc_mcp_meta",
+            env=None, threshold=30_000)
+
+        spill = (get_spillover_dir() / "tc_mcp_meta.txt").read_text(encoding="utf-8")
+        text, _, tail = spill.partition("\n\n<mcp-result-metadata>\n")
+        assert text == markdown
+        assert json.loads(tail.split("\n</mcp-result-metadata>")[0]) == {"structuredContent": {"count": 5_000}}
+
+    def test_builtin_tool_spills_newlines_and_metadata(self):
+        output = "terminal output line\n" * 2_000
+        content = json.dumps({"output": output, "exit_code": 0, "error": None})
+        result = maybe_persist_tool_result(
+            content=content, tool_name="terminal", tool_use_id="tc_terminal_text",
+            env=None, threshold=30_000)
+
+        assert PERSISTED_OUTPUT_TAG in result
+        spill = (get_spillover_dir() / "tc_terminal_text.txt").read_text(encoding="utf-8")
+        head, _, text = spill.partition("\n</tool-result-metadata>\n\n")
+        assert text == output
+        assert json.loads(head.removeprefix("<tool-result-metadata>\n")) == {
+            "error": None, "exit_code": 0, "text_field": "output"}
+        assert '"exit_code": 0' in result
+
+    def test_lists_and_dicts_follow_the_text_so_the_preview_shows_it(self):
+        body = "# Big skill\n\n" + "".join(f"Step {i}: do the thing carefully.\n" for i in range(3_000))
+        payload = {
+            "success": True,
+            "name": "big-skill",
+            "description": "Use when testing spill layout.",
+            "tags": ["Testing", "Spill"],
+            "content": body,
+            "skill_dir": "/srv/skills/testing/big-skill",
+            "linked_files": {"references": [f"references/topic-{i}.md" for i in range(60)]},
+            "usage_hint": "To view linked files, call skill_view(name, file_path).",
+            "metadata": {"hermes": {"tags": ["Testing"], "related_skills": []}},
+        }
+        result = maybe_persist_tool_result(
+            content=json.dumps(payload, ensure_ascii=False), tool_name="skill_view",
+            tool_use_id="tc_skill_layout", env=None, threshold=30_000)
+
+        preview = result.split("Preview (first", 1)[1]
+        assert body[:1_000] in preview
+        assert '"name": "big-skill"' in preview
+        spill = (get_spillover_dir() / "tc_skill_layout.txt").read_text(encoding="utf-8")
+        head, _, rest = spill.partition("\n</tool-result-metadata>\n\n")
+        text, _, tail = rest.partition("\n\n<tool-result-metadata>\n")
+        assert text == body
+        fields = {**json.loads(head.removeprefix("<tool-result-metadata>\n")),
+                  **json.loads(tail.removesuffix("\n</tool-result-metadata>\n"))}
+        assert fields.pop("text_field") == "content"
+        assert fields == {key: value for key, value in payload.items() if key != "content"}
+
+    def test_long_terminal_notes_stay_in_the_preview(self):
+        note = ("Output exceeded the capture window (head+tail shown). Full output saved to "
+                "/srv/logs/" + "build-" * 40 + "out.log — page it with read_file.")
+        content = json.dumps({"output": "build line\n" * 5_000, "exit_code": 2, "error": None,
+                              "truncation_note": note}, ensure_ascii=False)
+        result = maybe_persist_tool_result(
+            content=content, tool_name="terminal", tool_use_id="tc_terminal_note",
+            env=None, threshold=30_000)
+
+        preview = result.split("Preview (first", 1)[1]
+        assert note in preview
+        assert '"exit_code": 2' in preview
+
+    def test_unpageable_json_strings_still_verbatim(self):
+        cases = {
+            "tc_json_short": {"output": "one line", "exit_code": 0, "error": None},
+            "tc_json_nul": {"output": "abcdefghijklmnop\x00\n" * 2_000, "exit_code": 0},
+            "tc_json_minor": {"output": "line\n" * 100, "rows": list(range(2_000))},
+        }
+        for tool_use_id, payload in cases.items():
+            content = json.dumps(payload)
+            maybe_persist_tool_result(
+                content=content, tool_name="terminal", tool_use_id=tool_use_id,
+                env=None, threshold=1)
+            assert (get_spillover_dir() / f"{tool_use_id}.txt").read_text(encoding="utf-8") == content
+
+    def test_structured_content_only_result_still_verbatim(self):
+        content = json.dumps({"result": {"blob": "z" * 40_000}})
+        maybe_persist_tool_result(
+            content=content, tool_name="mcp__archive__opaque", tool_use_id="tc_mcp_opaque",
+            env=None, threshold=30_000)
+        assert (get_spillover_dir() / "tc_mcp_opaque.txt").read_text(encoding="utf-8") == content
+
+    def test_sandbox_write_carries_pageable_text(self):
+        env = MagicMock()  # not a LocalEnvironment -> remote path
+        env.execute.side_effect = [
+            {"output": "", "returncode": 1},  # mounted-path probe: not readable
+            {"output": "", "returncode": 0},  # cat > sandbox path
+            {"output": "", "returncode": 1},  # wc -c probe: no answer -> best effort
+        ]
+        env.get_temp_dir.return_value = ""
+        markdown = "remote line\n" * 5_000
+        maybe_persist_tool_result(
+            content=json.dumps({"result": markdown}), tool_name="mcp__archive__remote",
+            tool_use_id="tc_mcp_remote", env=env, threshold=30_000)
+        assert env.execute.call_args_list[1][1]["stdin_data"] == markdown
+
+    def test_turn_budget_spill_unwraps_envelope(self):
+        """The aggregate layer persists under __budget_enforcement__, so a tool-name gate would
+        miss the very results it must fix; the shape gate still applies."""
+        markdown = "budgeted line\n" * 3_000
+        msgs = [{
+            "role": "tool", "name": "mcp__archive__read", "tool_call_id": "tc_budget_mcp",
+            "content": json.dumps({"result": markdown}),
+        }]
+
+        enforce_turn_budget(msgs, env=None, config=BudgetConfig(turn_budget=10_000))
+
+        assert PERSISTED_OUTPUT_TAG in msgs[0]["content"]
+        assert (get_spillover_dir() / "tc_budget_mcp.txt").read_text(encoding="utf-8") == markdown
+
+
 
 # ── recovery hint in the persisted preview ────────────────────────────
 

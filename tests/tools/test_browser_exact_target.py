@@ -1,122 +1,296 @@
-"""Pinned-target bridge contracts; all commands/supervisors are synthetic."""
-from types import SimpleNamespace
+"""Exact-tab binding for browser_exec on a shared CDP browser (fork policy, carried from d05b5d48)."""
+from types import ModuleType, SimpleNamespace
 from unittest.mock import Mock
-import hashlib
 import json
+import os
+
 import pytest
-from tools import browser_tool_target as target
+
+from tools import browser_exec_target as target
+from tools import browser_use_shot as shot
 
 
-def row(identity='own'):
-    return {'targetId':identity,'active':True,'url':'https://same.test/','tabId':'t1'}
+@pytest.fixture(autouse=True)
+def _fresh_state():
+    target._states.clear()
+    target._tasks.clear()
+    yield
+    target._states.clear()
+    target._tasks.clear()
 
 
-class Driver:
-    def __init__(self, pre=None, post=None, action=None):
-        self.rows=[pre or row(),post or pre or row()];self.calls=[]
-        self.action=action or {'success':True,'data':{'snapshot':'synthetic'}}
-    def __call__(self,command,args):
-        self.calls.append((command,args))
-        if (command,args)==('tab',['list']):
-            value=self.rows.pop(0) if len(self.rows)>1 else self.rows[0]
-            return {'success':True,'data':{'tabs':[value]}}
-        return self.action
+class FakeSupervisor:
+    def __init__(self, bind_ok=True):
+        self.bound = None
+        self.bind_ok = bind_ok
+        self.binds = []
+
+    def matches_command_target(self, target_id):
+        return bool(target_id and target_id == self.bound)
+
+    def bind_command_target(self, target_id):
+        self.binds.append(target_id)
+        if self.bind_ok:
+            self.bound = target_id
+            return {"ok": True}
+        self.bound = None
+        return {"ok": False}
 
 
-def sup():
-    bound=[]
-    def bind(identity):bound[:]=[identity];return {'ok':True}
-    return SimpleNamespace(matches_command_target=lambda x:bound==[x],bind_command_target=bind)
+def _write(path, report):
+    with open(path, "w") as stream:
+        json.dump(report, stream)
 
 
-def test_snapshot_carries_verified_id_and_clears_quarantine():
-    info={'target_reconciliation_required':True};d=Driver();s=sup()
-    r=target.dispatch('t',info,'snapshot',[],d,s)
-    assert r['data']['targetId']=='own' and 'target_reconciliation_required' not in info
-    assert s._secret_admission()
+def _call(report, sup, task="t", route="r"):
+    env = {}
+    path = target.begin(env, task, route)
+    if report is not None:
+        _write(path, report)
+    return env, target.finish(task, route, path, sup)
 
 
-def test_same_origin_neighbor_never_receives_action():
-    info={'command_target_id':'own'};d=Driver(pre=row('neighbor'))
-    r=target.dispatch('t',info,'click',['@e1'],d,sup())
-    assert r['code']=='target_changed';assert all(c=='tab' for c,_ in d.calls)
+# ---------------------------------------------------------------- host reconciliation
+
+def test_verified_call_binds_supervisor_and_admits_secrets():
+    sup = FakeSupervisor()
+    target.install_admission(sup, "t")
+    assert not sup._secret_admission()  # nothing verified yet
+    env, fields = _call({"pre": None, "post": "A", "checked": True}, sup)
+    assert fields == {} and sup.binds == ["A"]
+    assert sup._command_admission() and sup._secret_admission()
+    env, _ = _call({"pre": "A", "post": "A", "checked": True}, sup)
+    assert env[target.EXPECTED_ENV] == "A"
+    assert sup.binds == ["A"]  # already bound: no rebind
 
 
-def test_missing_identity_refuses_before_action():
-    d=Driver(pre={'active':True,'url':'https://same.test/'})
-    r=target.dispatch('t',{},'click',['@e1'],d,sup())
-    assert r['code']=='target_identity_unavailable';assert len(d.calls)==1
+def test_missing_report_is_uncertain_and_blocks_secrets_without_replay():
+    sup = FakeSupervisor()
+    target.install_admission(sup, "t")
+    _call({"post": "A"}, sup)
+    env, fields = _call(None, sup)  # timeout / killed harness
+    assert fields["target_verified"] is False and "do not repeat" in fields["target_warning"]
+    assert not sup._secret_admission()
+    env, _ = _call({"post": "A"}, sup)
+    assert target.EXPECTED_ENV not in env  # unknown tab: nothing to compare against
+    assert sup._secret_admission()  # a later clean call reconciles
 
 
-def test_post_action_change_is_uncertain_and_not_replayed():
-    d=Driver(post=row('neighbor'));info={}
-    r=target.dispatch('t',info,'click',['@e1'],d,sup())
-    assert r['code']=='target_outcome_uncertain';assert info['target_reconciliation_required']
-    assert len([c for c,_ in d.calls if c=='click'])==1
+def test_changed_tab_refusal_keeps_guard_until_explicit_selection():
+    sup = FakeSupervisor()
+    target.install_admission(sup, "t")
+    _call({"post": "A"}, sup)
+    env, fields = _call({"pre": "B", "refused": "target_changed"}, sup)
+    assert "No code ran" in fields["target_error"]
+    assert not sup._secret_admission()
+    env, fields = _call({"pre": None, "post": "B", "checked": True}, sup)  # code selected B explicitly
+    assert env[target.EXPECTED_ENV] == "A" and fields == {}
+    assert sup.bound == "B" and sup._secret_admission()
 
 
-def test_failed_action_not_replayed_or_post_probed():
-    d=Driver(action={'success':False,'error':'timeout'});r=target.dispatch('t',{},'screenshot',[],d,sup())
-    assert not r['success'];assert len(d.calls)==2
+def test_binding_failure_blocks_secrets():
+    sup = FakeSupervisor(bind_ok=False)
+    target.install_admission(sup, "t")
+    _, fields = _call({"post": "A"}, sup)
+    assert fields["target_verified"] is False and not sup._secret_admission()
 
 
-def test_quarantine_allows_read_but_not_writes_or_secrets():
-    info={'target_reconciliation_required':True};d=Driver();s=sup()
-    r=target.dispatch('t',info,'fill',['@e1','synthetic'],d,s)
-    assert r['code']=='target_reconciliation_required' and not s._command_admission()
-    assert all(c=='tab' for c,_ in d.calls)
+def test_secret_admission_closed_while_call_in_flight():
+    sup = FakeSupervisor()
+    target.install_admission(sup, "t")
+    _call({"post": "A"}, sup)
+    env = {}
+    path = target.begin(env, "t", "r")
+    assert not sup._secret_admission()
+    _write(path, {"post": "A"})
+    target.finish("t", "r", path, sup)
+    assert sup._secret_admission()
 
 
-def test_fresh_snapshot_required_after_navigation():
-    info={};d=Driver();s=sup();target.dispatch('t',info,'open',['https://same.test/'],d,s)
-    assert info['fresh_snapshot_required'] and not s._secret_admission()
-    denied=target.dispatch('t',info,'click',['@e1'],Driver(),s)
-    assert denied['code']=='fresh_snapshot_required'
-    target.dispatch('t',info,'snapshot',[],Driver(),s)
-    assert s._secret_admission()
+def test_named_sessions_keep_separate_expected_tabs():
+    sup = FakeSupervisor()
+    target.install_admission(sup, "t")
+    _call({"post": "A"}, sup, route="t::one")
+    _call({"post": "B"}, sup, route="t::two")
+    env = {}
+    path = target.begin(env, "t", "t::one")
+    assert env[target.EXPECTED_ENV] == "A"
+    _write(path, {"post": "A"})
+    target.finish("t", "t::one", path, sup)
+    assert sup.bound == "A" and sup._secret_admission()
 
 
-def test_cleanup_does_not_inspect_or_create_replacement():
-    d=Driver();target.dispatch('t',{},'close',[],d,sup());assert d.calls==[('close',[])]
+def test_report_file_is_private_and_removed(tmp_path):
+    env = {}
+    path = target.begin(env, "t", "r")
+    assert oct(os.stat(os.path.dirname(path)).st_mode & 0o777) == "0o700"
+    _write(path, {"post": "A"})
+    target.finish("t", "r", path, FakeSupervisor())
+    assert not os.path.exists(os.path.dirname(path))
 
 
-def test_binding_failure_does_not_send_action():
-    s=sup();s.bind_command_target=lambda x:{'ok':False};d=Driver()
-    r=target.dispatch('t',{},'click',['@e1'],d,s)
-    assert r['code']=='target_binding_failed' and len(d.calls)==1
+# ---------------------------------------------------------------- harness-side guard
+
+def _helpers(attached):
+    mod = ModuleType("browser_harness.helpers")
+    calls = []
+
+    def _send(req):
+        assert req == {"meta": "current_tab"}
+        return {"targetId": attached[0]}
+
+    def make(name):
+        def fn(*a, **k):
+            calls.append(name)
+            if name == "switch_tab":
+                attached[0] = a[0]
+            return name
+        fn.__module__ = shot._HARNESS_MODULE
+        fn.__name__ = name
+        return fn
+
+    mod._send = _send
+    for name in ("js", "goto_url", "click_at_xy", "list_tabs", "current_tab", "switch_tab", "new_tab", "cdp",
+                 "capture_screenshot"):
+        setattr(mod, name, make(name))
+    return mod, calls
 
 
-def test_explicit_tab_switch_updates_target_and_requires_snapshot():
-    info={'command_target_id':'own'};d=Driver(post=row('other'))
-    r=target.dispatch('t',info,'tab',['other'],d,sup())
-    assert r['success'] and info['command_target_id']=='other' and info['fresh_snapshot_required']
+@pytest.fixture
+def hook(monkeypatch, tmp_path):
+    registered = []
+    monkeypatch.setattr("atexit.register", lambda fn: registered.append(fn))
+    report = tmp_path / "report.json"
+    monkeypatch.setenv(shot.TARGET_REPORT_ENV, str(report))
+
+    def run():
+        for fn in registered:
+            fn()
+        return json.loads(report.read_text())
+    return SimpleNamespace(run=run, report=report)
 
 
-def test_driver_checksum_failure_refuses_fallback(monkeypatch,tmp_path):
-    from tools import browser_tool_install as install
-    binary=tmp_path/'driver';binary.write_text('#!/bin/sh\nexit0\n');binary.chmod(0o700)
-    values={'agent_browser_path':str(binary),'agent_browser_sha256':'wrong'}
-    monkeypatch.setattr(install,'_origin',lambda:SimpleNamespace(_browser_cfg=lambda k,d,*a:values.get(k,d)))
-    with pytest.raises(FileNotFoundError,match='checksum'):install._find_agent_browser(validate=False)
-    values['agent_browser_sha256']=hashlib.sha256(binary.read_bytes()).hexdigest()
-    assert install._find_agent_browser(validate=False)==str(binary)
+def test_guard_refuses_action_on_changed_tab(monkeypatch, hook):
+    monkeypatch.setenv(shot.TARGET_EXPECTED_ENV, "A")
+    attached = ["B"]
+    helpers, calls = _helpers(attached)
+    shot.install_target_report(helpers)
+    with pytest.raises(SystemExit):
+        helpers.click_at_xy(1, 2)
+    assert calls == []  # the click never reached the harness
+    assert hook.run() == {"pre": "B", "checked": True, "refused": "target_changed"}
 
+
+def test_guard_allows_inspection_then_explicit_selection(monkeypatch, hook):
+    monkeypatch.setenv(shot.TARGET_EXPECTED_ENV, "A")
+    attached = ["B"]
+    helpers, calls = _helpers(attached)
+    shot.install_target_report(helpers)
+    helpers.list_tabs()
+    helpers.current_tab()
+    helpers.switch_tab("C")
+    helpers.click_at_xy(1, 2)
+    assert calls == ["list_tabs", "current_tab", "switch_tab", "click_at_xy"]
+    assert hook.run()["post"] == "C"
+
+
+def test_guard_ignores_helpers_called_inside_inspection(monkeypatch, hook):
+    monkeypatch.setenv(shot.TARGET_EXPECTED_ENV, "A")
+    attached = ["B"]
+    helpers, calls = _helpers(attached)
+    real_list = helpers.list_tabs
+
+    def list_tabs_calling_cdp():
+        helpers.cdp("Target.getTargets")  # module-global lookup reaches the guarded cdp
+        return real_list()
+    list_tabs_calling_cdp.__module__ = shot._HARNESS_MODULE
+    helpers.list_tabs = list_tabs_calling_cdp
+    shot.install_target_report(helpers)
+    helpers.list_tabs()
+    helpers.switch_tab("C")
+    assert calls == ["cdp", "list_tabs", "switch_tab"]
+    assert "refused" not in hook.run()
+
+
+def test_guard_passes_matching_tab_and_reports_post(monkeypatch, hook):
+    monkeypatch.setenv(shot.TARGET_EXPECTED_ENV, "A")
+    attached = ["A"]
+    helpers, _calls = _helpers(attached)
+    shot.install_target_report(helpers)
+    helpers.js("1")
+    helpers.goto_url("https://example.test")
+    rep = hook.run()
+    assert rep["pre"] == "A" and rep["post"] == "A" and "refused" not in rep
+
+
+def test_guard_without_expected_only_reports(monkeypatch, hook):
+    monkeypatch.delenv(shot.TARGET_EXPECTED_ENV, raising=False)
+    attached = ["Z"]
+    helpers, _calls = _helpers(attached)
+    shot.install_target_report(helpers)
+    helpers.click_at_xy(0, 0)
+    assert hook.run()["post"] == "Z"
+
+
+def test_install_guards_replaced_screenshot_helper(monkeypatch, hook):
+    monkeypatch.setenv(shot.TARGET_EXPECTED_ENV, "A")
+    attached = ["B"]
+    helpers, _calls = _helpers(attached)
+    shot.install(helpers)  # replaces capture_screenshot, then guards everything
+    assert getattr(helpers.capture_screenshot, "__wrapped__", None) is not None
+    with pytest.raises(SystemExit):
+        helpers.capture_screenshot()
+
+
+# ---------------------------------------------------------------- supervisor (carried from d05b5d48)
 
 def test_strict_origin_focus_does_not_search_neighbor_tabs():
     from tools.browser_supervisor import CDPSupervisor
-    s=CDPSupervisor('t','ws://synthetic',command_binding_required=True)
-    s._loop=SimpleNamespace(is_running=lambda:True);s._secret_admission=lambda:True
-    s._cdp=Mock(side_effect=AssertionError('no target enumeration or selection'))
-    s.evaluate_runtime=lambda expression:{'ok':True,'result':'https://wrong.test'}
+    s = CDPSupervisor('t', 'ws://synthetic', command_binding_required=True)
+    s._loop = SimpleNamespace(is_running=lambda: True)
+    s._secret_admission = lambda: True
+    s._cdp = Mock(side_effect=AssertionError('no target enumeration or selection'))
+    s.evaluate_runtime = lambda expression: {'ok': True, 'result': 'https://wrong.test'}
     assert not s.focus_page('https://same.test')['ok']
-    s.evaluate_runtime=lambda expression:{'ok':True,'result':'https://same.test' if expression=='location.origin' else True}
-    assert s.focus_page('https://same.test',accept='synthetic form')['ok']
+    s.evaluate_runtime = lambda expression: {'ok': True, 'result': 'https://same.test' if expression == 'location.origin' else True}
+    assert s.focus_page('https://same.test', accept='synthetic form')['ok']
     s._cdp.assert_not_called()
 
 
 def test_strict_evaluation_refuses_before_secret_dispatch():
     from tools.browser_supervisor import CDPSupervisor
-    s=CDPSupervisor('t','ws://synthetic',command_binding_required=True)
-    s._cdp=Mock(side_effect=AssertionError('must not send secret'))
-    r=s.evaluate_runtime('synthetic-secret-expression')
-    assert not r['ok'] and 'fresh snapshot' in r['error'];s._cdp.assert_not_called()
+    s = CDPSupervisor('t', 'ws://synthetic', command_binding_required=True)
+    s._cdp = Mock(side_effect=AssertionError('must not send secret'))
+    r = s.evaluate_runtime('synthetic-secret-expression')
+    assert not r['ok'] and 'fresh snapshot' in r['error']
+    s._cdp.assert_not_called()
+
+
+def test_vault_supervisor_refuses_unbound_supervisor_on_shared_browser(monkeypatch):
+    from tools import browser_vault_tool
+    from tools.browser_supervisor import SUPERVISOR_REGISTRY
+    monkeypatch.setattr(target, "enabled", lambda: True)
+    monkeypatch.setattr(SUPERVISOR_REGISTRY, "get", lambda task_id: SimpleNamespace(_command_binding_required=False))
+    assert browser_vault_tool._ensure_supervisor("t") is None
+    monkeypatch.setattr(SUPERVISOR_REGISTRY, "get", lambda task_id: None)
+    assert browser_vault_tool._ensure_supervisor("t") is None  # never starts an unbound one
+
+
+# ---------------------------------------------------------------- retained native screenshots (fork)
+
+def test_default_screenshot_is_unique_and_retained_in_profile_cache(monkeypatch, tmp_path):
+    monkeypatch.setenv(shot.SCREENSHOT_DIR_ENV, str(tmp_path))
+    first, second = shot._default_shot_path(), shot._default_shot_path()
+    assert first != second
+    assert os.path.dirname(first) == str(tmp_path) and os.path.basename(first).startswith("browser_screenshot_")
+
+
+def test_browser_exec_screenshot_dir_matches_removed_browser_vision(monkeypatch, tmp_path):
+    from tools import browser_use_cli
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    assert browser_use_cli._screenshot_dir() == str(tmp_path / "cache" / "screenshots")
+    legacy = tmp_path / "browser_screenshots"
+    legacy.mkdir()
+    import shutil as _shutil
+    _shutil.rmtree(tmp_path / "cache" / "screenshots")
+    assert browser_use_cli._screenshot_dir() in (str(legacy), str(tmp_path / "cache" / "screenshots"))
