@@ -111,7 +111,7 @@ class SharedUpdateService:
         target = f"discord:{self.channel_id}"
         if self._send_message_override:
             return self._send_message_override(target, message)
-        from tools.send_message_tool import send_message_tool
+        from gateway.outbound.send import send_message_tool
 
         return json.loads(send_message_tool({
             "action": "send", "target": target, "message": message,
