@@ -9,6 +9,7 @@ import json
 import os
 import shutil
 import sqlite3
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -525,3 +526,52 @@ def test_shared_update_reports_visible_but_unmirrored_partial_failure(tmp_path):
     assert result["discord_sent"]
     assert not result["context_mirrored"]
     assert result["message_id"] == "789"
+
+
+@pytest.mark.parametrize("native_mirrored", [False, True])
+def test_shared_update_native_sender_preserves_single_weekly_mirror(tmp_path, monkeypatch, native_mirrored):
+    from gateway.outbound import send
+
+    monkeypatch.setitem(sys.modules, "tools.send_message_tool", None)
+    assert Path(send.__file__).resolve().is_relative_to(Path(__file__).resolve().parents[2])
+    assert Path(shared_update.__file__).resolve().is_relative_to(Path(__file__).resolve().parents[2])
+    calls = []
+    def native_send(args):
+        calls.append(args)
+        return json.dumps({"success": True, "message_id": "789", "mirrored": native_mirrored})
+
+    monkeypatch.setattr(send, "send_message_tool", native_send)
+    db = FakeSessionDB()
+    service = shared_update.SharedUpdateService(
+        store_mod.Store(tmp_path / "orchestration.sqlite"), tmp_path,
+        channel_id="123", session_db_factory=lambda: db,
+    )
+    result = service.post("Prepared brief", now=dt.datetime(2026, 11, 19, 12, tzinfo=dt.UTC))
+    assert result["success"] and result["discord_sent"] and result["context_mirrored"]
+    assert result["message_id"] == "789"
+    assert calls == [{"action": "send", "target": "discord:123", "message": "Prepared brief"}]
+    assert [item["content"] for item in db.messages] == ([] if native_mirrored else ["Prepared brief"])
+
+
+def test_shared_update_native_sender_failure_does_not_retry_or_mirror(tmp_path, monkeypatch):
+    from gateway.outbound import send
+
+    monkeypatch.setitem(sys.modules, "tools.send_message_tool", None)
+    assert Path(send.__file__).resolve().is_relative_to(Path(__file__).resolve().parents[2])
+    assert Path(shared_update.__file__).resolve().is_relative_to(Path(__file__).resolve().parents[2])
+    calls = []
+    def native_send(args):
+        calls.append(args)
+        return json.dumps({"success": False, "error": "transport unavailable"})
+
+    monkeypatch.setattr(send, "send_message_tool", native_send)
+    db = FakeSessionDB()
+    service = shared_update.SharedUpdateService(
+        store_mod.Store(tmp_path / "orchestration.sqlite"), tmp_path,
+        channel_id="123", session_db_factory=lambda: db,
+    )
+    result = service.post("Prepared brief", now=dt.datetime(2026, 11, 19, 12, tzinfo=dt.UTC))
+    assert not result["success"] and not result["discord_sent"] and not result["context_mirrored"]
+    assert result["error"] == "transport unavailable"
+    assert len(calls) == 1
+    assert db.messages == []
