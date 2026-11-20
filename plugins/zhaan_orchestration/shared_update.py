@@ -127,13 +127,16 @@ class SharedUpdateService:
     def _ensure_weekly_session(
         self, db, instant: dt.datetime
     ) -> tuple[str, dt.date]:
+        import local_session_routing as routing
+
         week_start, boundary = weekly_session_boundary(instant, self.timezone)
         from gateway.config import Platform
         from gateway.session import SessionSource, build_session_key
         source = SessionSource(platform=Platform.DISCORD, chat_id=self.channel_id,
                                chat_type="group", profile=self.profile)
         session_key = build_session_key(source, group_sessions_per_user=False, profile=self.profile)
-        current = db.find_latest_gateway_session_for_peer(
+        current = routing.find_peer_session(
+            db,
             source="discord",
             session_key=session_key,
             chat_id=self.channel_id,
@@ -143,8 +146,8 @@ class SharedUpdateService:
         current_started = None
         if self.profile:
             legacy_key = build_session_key(source, group_sessions_per_user=False)
-            legacy = db.find_latest_gateway_session_for_peer(
-                source="discord", session_key=legacy_key, chat_id=self.channel_id,
+            legacy = routing.find_peer_session(
+                db, source="discord", session_key=legacy_key, chat_id=self.channel_id,
                 chat_type="group", thread_id=None)
             if current and legacy and current["id"] != legacy["id"]:
                 raise RuntimeError("Weekly routing has two active histories; review offline before posting")
@@ -162,11 +165,7 @@ class SharedUpdateService:
             session_id = str(current["id"])
         else:
             if current:
-                promote = getattr(db, "promote_to_session_reset", None)
-                if callable(promote):
-                    promote(str(current["id"]), "weekly_reset")
-                else:
-                    db.end_session(str(current["id"]), "weekly_reset")
+                routing.reset_session(db, str(current["id"]), "weekly_reset")
             session_id = f"zhaan-week-{week_start.isoformat()}"
             db.create_session(
                 session_id,
@@ -188,7 +187,8 @@ class SharedUpdateService:
             "chat_type": "group",
             "profile": self.profile,
         }
-        db.record_gateway_session_peer(
+        routing.stamp_peer(
+            db,
             session_id,
             source="discord",
             session_key=session_key,
