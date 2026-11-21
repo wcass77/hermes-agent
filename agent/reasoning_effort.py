@@ -104,7 +104,7 @@ def is_astra_model(model: Optional[str]) -> bool:
 def codex_supported_efforts(model: Optional[str]) -> tuple[str, ...]:
     """Supported effort set for an OpenAI/Codex Responses model."""
     bare = (model or "").strip().lower().rsplit("/", 1)[-1]
-    if is_astra_model(model) or bare.startswith(NO_DISABLE_TIER_PREFIXES):
+    if is_astra_model(model) or bare == "gpt-6.2-sol" or bare.startswith(NO_DISABLE_TIER_PREFIXES):
         return CODEX_ASTRA_EFFORTS
     return (
         CODEX_GPT56_EFFORTS

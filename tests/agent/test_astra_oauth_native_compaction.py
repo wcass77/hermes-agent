@@ -33,6 +33,17 @@ _CODEX = "https://chatgpt.com/backend-api/codex"
     ("gpt-6.1-sol-900k", "openai-codex", _CODEX, False),
     ("gpt-6.1-sol-mini", "openai-codex", _CODEX, False),
     ("openai/gpt-6.1-sol", "openai-codex", _CODEX, False),
+    ("gpt-6.2-sol", "openai-codex", _CODEX, True),
+    ("GPT-6.2-SOL", "openai-codex", "https://chatgpt.com:443/backend-api/codex/", True),
+    ("gpt-6.2-sol", "openai", "https://api.openai.com/v1", False),
+    ("gpt-6.2-sol", "openai", _CODEX, False),
+    ("gpt-6.2-sol", "openai-codex", "https://relay.example/v1", False),
+    ("gpt-6.2-sol", "openai-codex", "https://chatgpt.com.example/backend-api/codex", False),
+    ("gpt-6.2-sol", "openai-codex", "http://chatgpt.com/backend-api/codex", False),
+    ("gpt-6.2-sol", "openai-codex", None, False),
+    ("gpt-6.2-sol-900k", "openai-codex", _CODEX, False),
+    ("gpt-6.2-sol-mini", "openai-codex", _CODEX, False),
+    ("openai/gpt-6.2-sol", "openai-codex", _CODEX, False),
     ("gpt-6-astra-900k", "openai-codex", "https://relay.example/v1", False),
     ("gpt-6-astra-900k", "openai", "https://api.openai.com/v1", False),
     ("gpt-6-astra", "openai", "https://api.openai.com/v1", False),
@@ -63,13 +74,14 @@ def test_capability_and_request_gate_agree(model, provider, base_url, eligible):
         assert (payload is not None) is eligible
 
 
+@pytest.mark.parametrize("model", ["gpt-6.1-sol", "gpt-6.2-sol"])
 @pytest.mark.parametrize("eligible", [True, False])
-def test_sol_request_and_checkpoint_replay_follow_current_gate(eligible):
+def test_sol_request_and_checkpoint_replay_follow_current_gate(eligible, model):
     from agent.message_content import flatten_message_text
     from run_agent import AIAgent
 
     agent = AIAgent(
-        model="gpt-6.1-sol", provider="openai-codex", base_url=_CODEX,
+        model=model, provider="openai-codex", base_url=_CODEX,
         api_mode="codex_responses", api_key="test-key", quiet_mode=True,
         skip_context_files=True, skip_memory=True, enabled_toolsets=[],
     )
