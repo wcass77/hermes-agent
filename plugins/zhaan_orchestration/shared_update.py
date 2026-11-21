@@ -65,6 +65,38 @@ def weekly_session_boundary(
     return sunday, boundary
 
 
+def _latest_message_id(db, session_id: str) -> int | None:
+    """Newest message id in *session_id* before a send, or None when it cannot be read."""
+    getter = getattr(db, "get_messages", None)
+    if not callable(getter):
+        return None
+    try:
+        rows = getter(session_id, latest=True, limit=1)
+    except Exception:
+        logger.debug("Weekly session read failed before send", exc_info=True)
+        return None
+    try:
+        return int(rows[-1]["id"]) if rows else 0
+    except (KeyError, TypeError, ValueError, IndexError):
+        return None
+
+
+def _mirror_landed(db, session_id: str, before_id: int | None, message: str) -> bool:
+    """True only when an assistant row with exactly *message* was added to *session_id*."""
+    getter = getattr(db, "get_messages", None)
+    if before_id is None or not callable(getter):
+        return False
+    try:
+        rows = getter(session_id, after_id=before_id)
+    except Exception:
+        logger.debug("Weekly session read failed after send", exc_info=True)
+        return False
+    return any(
+        row.get("role") == "assistant" and str(row.get("content") or "").strip() == message
+        for row in rows
+    )
+
+
 class SharedUpdateService:
     def __init__(
         self,
@@ -210,6 +242,7 @@ class SharedUpdateService:
             db = self._session_db()
             try:
                 session_id, week_start = self._ensure_weekly_session(db, instant)
+                before_id = _latest_message_id(db, session_id)
                 result = self._send(message)
                 if not result.get("success"):
                     return {
@@ -218,7 +251,11 @@ class SharedUpdateService:
                         "context_mirrored": False,
                         "error": result.get("error") or "Discord delivery failed",
                     }
-                mirrored = bool(result.get("mirrored"))
+                # The native sender mirrors by origin lookup, which can resolve a different (even
+                # ended) session; trust only a mirror that landed in this weekly session.
+                mirrored = bool(result.get("mirrored")) and _mirror_landed(
+                    db, session_id, before_id, message
+                )
                 if not mirrored:
                     try:
                         db.append_message(

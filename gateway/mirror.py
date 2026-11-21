@@ -111,15 +111,42 @@ def _find_session_id(platform: str, chat_id: str, thread_id: Optional[str] = Non
     except Exception:
         return None
     for probe in probes:
-        session_id = _find_in_sessions_index(data, platform, chat_id, probe, user_id)
+        session_id = _find_in_sessions_index(data, platform, chat_id, probe, user_id,
+                                             is_live=_session_not_ended)
         if session_id:
             return session_id
     return None
 
 
+def _session_not_ended(session_id: str) -> bool:
+    """False when state.db records *session_id* as ended (fork, req-20261119-007).
+
+    The ``sessions.json`` fallback is a pre-migration index: under the multiplexed gateway a
+    profile's own copy stops updating, so its entries keep naming sessions that state.db has
+    since ended (Zhaan's weekly rotation left every later mirror in an ended week). An ended
+    session never receives a mirror; an unknown or unreadable session keeps the legacy fallback."""
+    try:
+        from hermes_state_registry import acquire, release_or_close
+        db = acquire()
+        try:
+            getter = getattr(db, "get_session", None)
+            row = getter(str(session_id)) if callable(getter) else None
+        finally:
+            release_or_close(db)
+    except Exception as e:
+        logger.debug("Mirror ended-session check failed for %s: %s", session_id, e)
+        return True
+    if not isinstance(row, dict):
+        return True  # unknown to state.db (or not a session row): keep the legacy fallback
+    return row.get("ended_at") is None
+
+
 def _find_in_sessions_index(data: dict, platform: str, chat_id: str, thread_id: str,
-                            user_id: Optional[str]) -> Optional[str]:
-    """One exact-thread lookup in the pre-migration ``sessions.json`` index."""
+                            user_id: Optional[str], is_live=None) -> Optional[str]:
+    """One exact-thread lookup in the pre-migration ``sessions.json`` index.
+
+    *is_live* (session_id -> bool) drops candidates before selection, so an ended entry can
+    neither be chosen nor hide a live one."""
     def _matches(entry: dict) -> bool:
         origin = entry.get("origin") or {}
         return ((origin.get("platform") or entry.get("platform", "")).lower() == platform.lower()
@@ -128,6 +155,8 @@ def _find_in_sessions_index(data: dict, platform: str, chat_id: str, thread_id: 
 
     # Keys starting with "_" (e.g. the gateway's "_README") are metadata sentinels.
     candidates = [e for k, e in data.items() if not str(k).startswith("_") and isinstance(e, dict) and _matches(e)]
+    if is_live is not None:
+        candidates = [e for e in candidates if e.get("session_id") and is_live(str(e["session_id"]))]
     if not candidates:
         return None
     if user_id:

@@ -208,3 +208,69 @@ class TestSessionsIndexProfileScoping:
         monkeypatch.setenv("HERMES_HOME", str(tmp_path / "elsewhere"))
 
         assert mirror_mod._find_session_id("telegram", "12345") == "sess_patched"
+
+
+class TestEndedFallbackGuard:
+    """Fork (req-20261119-007): the pre-migration ``sessions.json`` fallback must never pick an
+    ended session. Nov 21 2026: a frozen profile index still named Zhaan's ended weekly session,
+    the state.db lookup correctly bailed (local oneshot user matched neither live room), and
+    every Shared Update since Oct 26 was mirrored into the ended week."""
+
+    @staticmethod
+    def _db(ended):
+        class _DB:
+            def find_session_by_origin(self, **_kwargs):
+                return None  # ambiguous live rooms: the state.db probe bails by design
+
+            def get_session(self, session_id):
+                if session_id not in ended:
+                    return None
+                return {"id": session_id, "ended_at": ended[session_id]}
+
+            def append_message(self, **kwargs):
+                raise AssertionError(f"must not write: {kwargs}")
+        return _DB()
+
+    @staticmethod
+    def _index(tmp_path, entries):
+        return _setup_sessions(tmp_path, {
+            f"agent:zhaan:discord:group:777:{i}": {
+                "session_id": sid,
+                "origin": {"platform": "discord", "chat_id": "777", "user_id": "1097"},
+                "updated_at": updated,
+            } for i, (sid, updated) in enumerate(entries)
+        })
+
+    def test_ended_stale_entry_is_not_mirrored(self, tmp_path):
+        _, index_file = self._index(tmp_path, [("zhaan-week-2026-10-18", "2026-10-22T09:05:30")])
+        db = self._db({"zhaan-week-2026-10-18": 1792963953.2})
+        with patch.object(mirror_mod, "_SESSIONS_INDEX", index_file), \
+             patch("hermes_state_registry.acquire", return_value=db), \
+             patch("hermes_state_registry.release_or_close"):
+            assert mirror_mod._find_session_id("discord", "777", user_id="uid:1000") is None
+            assert mirror_mod.mirror_to_session("discord", "777", "Brief", user_id="uid:1000") is False
+
+    def test_ended_newer_entry_does_not_hide_a_live_one(self, tmp_path):
+        _, index_file = self._index(tmp_path, [
+            ("sess_live", "2026-10-01T00:00:00"),
+            ("sess_ended", "2026-10-22T00:00:00"),
+        ])
+        db = self._db({"sess_ended": 1792963953.2, "sess_live": None})
+        with patch.object(mirror_mod, "_SESSIONS_INDEX", index_file), \
+             patch("hermes_state_registry.acquire", return_value=db), \
+             patch("hermes_state_registry.release_or_close"):
+            assert mirror_mod._find_session_id("discord", "777") == "sess_live"
+
+    def test_unknown_session_keeps_legacy_fallback(self, tmp_path):
+        _, index_file = self._index(tmp_path, [("sess_pre_migration", "2026-10-22T00:00:00")])
+        db = self._db({})
+        with patch.object(mirror_mod, "_SESSIONS_INDEX", index_file), \
+             patch("hermes_state_registry.acquire", return_value=db), \
+             patch("hermes_state_registry.release_or_close"):
+            assert mirror_mod._find_session_id("discord", "777") == "sess_pre_migration"
+
+    def test_unreadable_state_keeps_legacy_fallback(self, tmp_path):
+        _, index_file = self._index(tmp_path, [("sess_pre_migration", "2026-10-22T00:00:00")])
+        with patch.object(mirror_mod, "_SESSIONS_INDEX", index_file), \
+             patch("hermes_state_registry.acquire", side_effect=RuntimeError("locked")):
+            assert mirror_mod._find_session_id("discord", "777") == "sess_pre_migration"

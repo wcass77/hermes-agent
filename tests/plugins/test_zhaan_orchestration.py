@@ -451,7 +451,15 @@ class FakeSessionDB:
     def append_message(self, **kwargs):
         if self.fail_append:
             raise RuntimeError("state unavailable")
-        self.messages.append(kwargs)
+        self.messages.append({"id": len(self.messages) + 1, **kwargs})
+
+    def get_messages(self, session_id, *, latest=False, limit=None, after_id=None, **_kwargs):
+        rows = [m for m in self.messages if m.get("session_id") == session_id]
+        if after_id is not None:
+            rows = [m for m in rows if m["id"] > after_id]
+        if latest and limit:
+            rows = rows[-limit:]
+        return rows
 
     def close(self):
         return None
@@ -528,8 +536,12 @@ def test_shared_update_reports_visible_but_unmirrored_partial_failure(tmp_path):
     assert result["message_id"] == "789"
 
 
-@pytest.mark.parametrize("native_mirrored", [False, True])
-def test_shared_update_native_sender_preserves_single_weekly_mirror(tmp_path, monkeypatch, native_mirrored):
+@pytest.mark.parametrize("native_mirrored,landed_in", [
+    (False, None),
+    (True, "current"),
+    (True, "zhaan-week-2026-10-18"),  # Nov 21: origin mirror chose an ended week
+])
+def test_shared_update_native_sender_preserves_single_weekly_mirror(tmp_path, monkeypatch, native_mirrored, landed_in):
     from gateway.outbound import send
 
     monkeypatch.setitem(sys.modules, "tools.send_message_tool", None)
@@ -538,6 +550,9 @@ def test_shared_update_native_sender_preserves_single_weekly_mirror(tmp_path, mo
     calls = []
     def native_send(args):
         calls.append(args)
+        if landed_in:
+            target = db.current["id"] if landed_in == "current" else landed_in
+            db.append_message(session_id=target, role="assistant", content=args["message"])
         return json.dumps({"success": True, "message_id": "789", "mirrored": native_mirrored})
 
     monkeypatch.setattr(send, "send_message_tool", native_send)
@@ -550,7 +565,21 @@ def test_shared_update_native_sender_preserves_single_weekly_mirror(tmp_path, mo
     assert result["success"] and result["discord_sent"] and result["context_mirrored"]
     assert result["message_id"] == "789"
     assert calls == [{"action": "send", "target": "discord:123", "message": "Prepared brief"}]
-    assert [item["content"] for item in db.messages] == ([] if native_mirrored else ["Prepared brief"])
+    current = [m["content"] for m in db.messages if m["session_id"] == result["session_id"]]
+    assert current == ["Prepared brief"]  # exactly once in the resolved week, however the mirror went
+
+
+def test_shared_update_does_not_trust_mirror_it_cannot_verify(tmp_path):
+    db = FakeSessionDB()
+    db.get_messages = None  # state reads unavailable: append rather than claim an unverified mirror
+    service = shared_update.SharedUpdateService(
+        store_mod.Store(tmp_path / "orchestration.sqlite"), tmp_path, channel_id="123",
+        send_message=lambda *_: {"success": True, "message_id": "789", "mirrored": True},
+        session_db_factory=lambda: db,
+    )
+    result = service.post("Update", now=dt.datetime(2026, 11, 21, 12, tzinfo=dt.UTC))
+    assert result["success"] and result["context_mirrored"]
+    assert [m["content"] for m in db.messages] == ["Update"]
 
 
 def test_shared_update_native_sender_failure_does_not_retry_or_mirror(tmp_path, monkeypatch):
